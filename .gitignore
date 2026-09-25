@@ -1,0 +1,21 @@
+# 运行/构建产物
+access_log.txt
+*.log
+build/
+dist/
+__pycache__/
+*.pyc
+.venv/
+realnet_venv314/
+
+# 临时验证日志
+smoke*.log
+traffic.log
+pyinstaller.log
+pip_install.log
+exe_check.txt
+
+# 操作系统
+Thumbs.db
+ehthumbs.db
+Desktop.ini
