@@ -1,3 +1,6 @@
+# 敏感信息（切勿提交）
+.github_token
+
 # 运行/构建产物
 access_log.txt
 realsurf_config.json
@@ -11,6 +14,11 @@ __pycache__/
 *.pyc
 .venv/
 realnet_venv314/
+
+# 临时草稿（下划线开头，用完即删）
+_*.py
+_*.md
+_*.png
 
 # 临时验证日志
 smoke*.log

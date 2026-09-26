@@ -29,6 +29,7 @@ import threading
 import requests
 import time
 import sys
+import os
 import json
 import logging
 import tkinter as tk
@@ -48,6 +49,27 @@ from queue import Queue, Empty
 import traceback
 import webbrowser
 
+
+def resource_path(rel):
+    """取打包后资源文件路径，兼容 PyInstaller onefile（_MEIPASS）。"""
+    try:
+        base = sys._MEIPASS
+    except Exception:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel)
+
+
+ICON_FILE = 'realsurf.ico'
+
+
+def apply_app_icon(window):
+    """给窗口设置任务栏/标题栏图标；文件缺失时静默忽略。"""
+    try:
+        window.iconbitmap(resource_path(ICON_FILE))
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # 多语言 / i18n（中文 / English / Tiếng Việt）
 # ---------------------------------------------------------------------------
@@ -64,8 +86,8 @@ I18N = {
     'zh': {
         'menu_file': '文件', 'menu_sites': '站点列表', 'menu_export': '导出站点列表(JSON)',
         'menu_check_update': '检查更新', 'menu_about': '关于', 'menu_exit': '退出',
-        'menu_language': '语言', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
-        'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}',
+        'menu_language': '语言', 'menu_help': '帮助', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}', 'about_lang_label': '界面语言:',
         'lbl_threads': '最大并发线程 (1-20):', 'lbl_interval': '访问间隔 (秒, 5-30):',
         'chk_verify': '跳过证书校验(代理环境)', 'lbl_stream_prob': '长连接比例(0-50):',
         'lbl_stream_dur': '单次观看(秒,20-120):', 'btn_start': '开始', 'btn_stop': '停止',
@@ -92,8 +114,8 @@ I18N = {
         'chart_title': '各站点实时网速与状态', 'chart_title_idle': '各站点实时网速与状态（暂无活动）',
         'chart_ylabel': '网速 (KB/s)',
         'about_intro': '模拟真人上网行为：短请求浏览 + 长连接视频流，用于\n'
-                       'OpenClash / 代理链路连通性验证，以及 Smart 策略组\n'
-                       '训练数据采集。\n\n'
+                       'OpenClash / 代理链路连通性验证、Smart 策略组训练数据\n'
+                       '采集，以及 AdGuardHome(ADG) DNS 缓存预热与命中测试。\n\n'
                        '使用：设好并发数与访问间隔 → 走代理时勾选「跳过\n'
                        '证书校验」→ 点「开始」。运行日志见程序同目录的\n'
                        'access_log.txt。',
@@ -108,7 +130,7 @@ I18N = {
         'upd_latest_msg': '已是最新版本 v{ver}，无需更新。',
         'upd_found_status': '更新状态：发现新版本 {tag}，可点「检查更新」升级',
         'upd_found_msg': '发现新版本 {tag}（当前 v{ver}）\n\n{notes}\n\n是否下载并自动替换？',
-        'upd_found_quiet': '发现新版本 {tag}（当前 v{ver}）。\n请用菜单「文件 → 检查更新」升级。',
+        'upd_found_quiet': '发现新版本 {tag}（当前 v{ver}）。\n请用菜单「帮助 → 检查更新」升级。',
         'upd_conn_fail': '更新状态：无法连接更新服务器（请检查网络/代理）',
         'upd_conn_fail_msg': '无法连接更新服务器。\n请检查网络或代理设置后再试。',
         'upd_fail_status': '更新状态：检查更新失败',
@@ -119,8 +141,8 @@ I18N = {
     'en': {
         'menu_file': 'File', 'menu_sites': 'Site List', 'menu_export': 'Export Site List (JSON)',
         'menu_check_update': 'Check for Update', 'menu_about': 'About', 'menu_exit': 'Exit',
-        'menu_language': 'Language', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
-        'about_title': 'About {name}', 'about_ver': 'Version  v{ver}',
+        'menu_language': 'Language', 'menu_help': 'Help', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': 'About {name}', 'about_ver': 'Version  v{ver}', 'about_lang_label': 'Interface language:',
         'lbl_threads': 'Max Threads (1-20):', 'lbl_interval': 'Visit Interval (s, 5-30):',
         'chk_verify': 'Skip Cert Verify (proxy)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
         'lbl_stream_dur': 'Watch Duration (s, 20-120):', 'btn_start': 'Start', 'btn_stop': 'Stop',
@@ -147,8 +169,8 @@ I18N = {
         'chart_title': 'Real-time Speed & Status per Site', 'chart_title_idle': 'Real-time Speed & Status (no activity yet)',
         'chart_ylabel': 'Speed (KB/s)',
         'about_intro': 'Simulates realistic human browsing: short requests + long video streams.\n'
-                       'For OpenClash / proxy link connectivity checks and Smart group\n'
-                       'training data collection.\n\n'
+                       'For OpenClash / proxy link checks, Smart group training data\n'
+                       'collection, and AdGuardHome (ADG) DNS cache warm-up / hit tests.\n\n'
                        'Usage: set threads & interval → check "Skip Cert Verify" when behind a\n'
                        'proxy → click Start. Logs are in access_log.txt next to the app.',
         'about_repo_label': 'Update Repo:', 'about_status_checking': 'Update: checking…',
@@ -162,7 +184,7 @@ I18N = {
         'upd_latest_msg': 'Already latest v{ver}; no update needed.',
         'upd_found_status': 'Update: new version {tag} found',
         'upd_found_msg': 'New version {tag} (current v{ver})\n\n{notes}\n\nDownload and auto-replace?',
-        'upd_found_quiet': 'New version {tag} (current v{ver}).\nUse menu "File → Check for Update" to upgrade.',
+        'upd_found_quiet': 'New version {tag} (current v{ver}).\nUse menu "Help → Check for Update" to upgrade.',
         'upd_conn_fail': 'Update: cannot reach server (check network/proxy)',
         'upd_conn_fail_msg': 'Cannot reach update server.\nCheck network or proxy settings.',
         'upd_fail_status': 'Update: check failed',
@@ -173,8 +195,8 @@ I18N = {
     'vi': {
         'menu_file': 'Tập tin', 'menu_sites': 'Danh sách trang', 'menu_export': 'Xuất danh sách (JSON)',
         'menu_check_update': 'Kiểm tra cập nhật', 'menu_about': 'Giới thiệu', 'menu_exit': 'Thoát',
-        'menu_language': 'Ngôn ngữ', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
-        'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}',
+        'menu_language': 'Ngôn ngữ', 'menu_help': 'Trợ giúp', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}', 'about_lang_label': 'Ngôn ngữ giao diện:',
         'lbl_threads': 'Số luồng tối đa (1-20):', 'lbl_interval': 'Khoảng cách truy cập (giây, 5-30):',
         'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
         'lbl_stream_dur': 'Thời gian xem (giây, 20-120):', 'btn_start': 'Bắt đầu', 'btn_stop': 'Dừng',
@@ -201,8 +223,8 @@ I18N = {
         'chart_title': 'Tốc độ & trạng thái theo trang', 'chart_title_idle': 'Tốc độ & trạng thái (chưa có hoạt động)',
         'chart_ylabel': 'Tốc độ (KB/s)',
         'about_intro': 'Mô phỏng lướt web thật của con người: truy cập ngắn + luồng video dài.\n'
-                       'Dùng để kiểm tra kết nối OpenClash / proxy và thu thập dữ liệu\n'
-                       'huấn luyện nhóm Smart.\n\n'
+                       'Dùng để kiểm tra OpenClash / proxy, thu thập dữ liệu huấn luyện\n'
+                       'nhóm Smart, và làm nóng / kiểm tra cache DNS của AdGuardHome (ADG).\n\n'
                        'Cách dùng: chỉnh luồng & khoảng cách → khi qua proxy hãy tích\n'
                        '"Bỏ xác thực chứng chỉ" → bấm Bắt đầu. Nhật ký ở access_log.txt.',
         'about_repo_label': 'Kho cập nhật:', 'about_status_checking': 'Cập nhật: đang kiểm tra…',
@@ -216,7 +238,7 @@ I18N = {
         'upd_latest_msg': 'Đã là mới nhất v{ver}; không cần cập nhật.',
         'upd_found_status': 'Cập nhật: tìm thấy phiên bản mới {tag}',
         'upd_found_msg': 'Phiên bản mới {tag} (hiện tại v{ver})\n\n{notes}\n\nTải và tự thay thế?',
-        'upd_found_quiet': 'Phiên bản mới {tag} (hiện tại v{ver}).\nDùng menu "Tập tin → Kiểm tra cập nhật" để nâng cấp.',
+        'upd_found_quiet': 'Phiên bản mới {tag} (hiện tại v{ver}).\nDùng menu "Trợ giúp → Kiểm tra cập nhật" để nâng cấp.',
         'upd_conn_fail': 'Cập nhật: không thể kết nối (kiểm tra mạng/proxy)',
         'upd_conn_fail_msg': 'Không thể kết nối máy chủ cập nhật.\nKiểm tra mạng hoặc proxy.',
         'upd_fail_status': 'Cập nhật: kiểm tra thất bại',
@@ -798,6 +820,7 @@ class RealNetSimApp:
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
         self.root.geometry("1000x800")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        apply_app_icon(self.root)   # 任务栏/标题栏自定义图标
 
         # UI 变量
         self.verify_var = tk.BooleanVar(value=True)          # 默认开启证书校验
@@ -839,14 +862,12 @@ class RealNetSimApp:
         menubar = tk.Menu(self.root, tearoff=0)
         self.root.config(menu=menubar)
         self.menubar = menubar
+        # 文件
         file_menu = tk.Menu(menubar, tearoff=0)
         self.file_menu = file_menu
         menubar.add_cascade(label=_("menu_file"), menu=file_menu)
         file_menu.add_command(label=_("menu_sites"), command=self.open_domain_editor)
         file_menu.add_command(label=_("menu_export"), command=self.export_sites)
-        file_menu.add_separator()
-        file_menu.add_command(label=_("menu_check_update"), command=self.check_update_ui)
-        file_menu.add_command(label=_("menu_about"), command=self.show_about)
         file_menu.add_separator()
         file_menu.add_command(label=_("menu_exit"), command=self.on_closing)
         # 语言子菜单
@@ -856,6 +877,12 @@ class RealNetSimApp:
         lang_menu.add_command(label=_("lang_en"), command=lambda: self.switch_language('en'))
         lang_menu.add_command(label=_("lang_vi"), command=lambda: self.switch_language('vi'))
         menubar.add_cascade(label=_("menu_language"), menu=lang_menu)
+        # 帮助（检查更新 / 关于）
+        help_menu = tk.Menu(menubar, tearoff=0)
+        self.help_menu = help_menu
+        menubar.add_cascade(label=_("menu_help"), menu=help_menu)
+        help_menu.add_command(label=_("menu_check_update"), command=self.check_update_ui)
+        help_menu.add_command(label=_("menu_about"), command=self.show_about)
 
     # ---- 控件 ----
     def create_widgets(self):
@@ -1501,10 +1528,11 @@ class RealNetSimApp:
             self.menubar.entryconfig(0, label=_("menu_file"))
             self.file_menu.entryconfig(0, label=_("menu_sites"))
             self.file_menu.entryconfig(1, label=_("menu_export"))
-            self.file_menu.entryconfig(3, label=_("menu_check_update"))
-            self.file_menu.entryconfig(4, label=_("menu_about"))
-            self.file_menu.entryconfig(6, label=_("menu_exit"))
+            self.file_menu.entryconfig(3, label=_("menu_exit"))
             self.menubar.entryconfig(1, label=_("menu_language"))
+            self.menubar.entryconfig(2, label=_("menu_help"))
+            self.help_menu.entryconfig(0, label=_("menu_check_update"))
+            self.help_menu.entryconfig(1, label=_("menu_about"))
             # 主窗口控件
             self.threads_label.configure(text=_("lbl_threads"))
             self.interval_label.configure(text=_("lbl_interval"))
@@ -1578,6 +1606,15 @@ class RealNetSimApp:
             self.about_btn_check.configure(text=_("btn_check_update"))
             self.about_btn_repo.configure(text=_("btn_open_repo"))
             self.about_btn_close.configure(text=_("btn_close"))
+            # 语言切换行：标题文字 + 高亮当前语言
+            _lbl = getattr(self, 'about_lang_label', None)
+            if _lbl is not None and _lbl.winfo_exists():
+                _lbl.configure(text=_("about_lang_label"))
+            for _c, _b in getattr(self, 'about_lang_btns', {}).items():
+                try:
+                    _b.configure(bootstyle=(SUCCESS if _c == CURRENT_LANG else OUTLINE))
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1593,8 +1630,9 @@ class RealNetSimApp:
             pass
         win = Toplevel(self.root)
         win.title(_("about_title", name=APP_NAME))
-        win.geometry("560x500")
+        win.geometry("590x575")
         win.resizable(False, False)
+        apply_app_icon(win)
         self.about_window = win
 
         self.about_title_label = ttkb.Label(win, text=APP_NAME, font=(UI_FONT, 18, "bold"))
@@ -1631,6 +1669,19 @@ class RealNetSimApp:
         self.about_autoshow_chk = ttkb.Checkbutton(win, text=_("about_autoshow"), variable=show_var,
                          bootstyle="round-toggle")
         self.about_autoshow_chk.pack(padx=26, pady=(6, 0), anchor="w")
+
+        # 界面语言切换（在此窗口内即可直接切换：中文 / English / Tiếng Việt）
+        lang_row = ttkb.Frame(win)
+        lang_row.pack(padx=26, pady=(10, 0), anchor="w")
+        self.about_lang_label = ttkb.Label(lang_row, text=_("about_lang_label"), font=(UI_FONT, 10))
+        self.about_lang_label.pack(side="left")
+        self.about_lang_btns = {}
+        for _code, _key in (('zh', 'lang_zh'), ('en', 'lang_en'), ('vi', 'lang_vi')):
+            _b = ttkb.Button(lang_row, text=_(_key), width=9,
+                             bootstyle=(SUCCESS if _code == CURRENT_LANG else OUTLINE),
+                             command=lambda c=_code: self.switch_language(c))
+            _b.pack(side="left", padx=4)
+            self.about_lang_btns[_code] = _b
 
         def _close_about():
             cfg2 = self._load_config()
