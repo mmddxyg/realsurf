@@ -496,7 +496,8 @@ STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
+APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
 UPDATE_REPO = "mmddxyg/realsurf"
@@ -595,8 +596,12 @@ class RealNetSimApp:
             self.update_log()
             self.update_chart()
             self.update_counters()
-            # 启动后静默检查一次 GitHub 更新（仅发现新版本才提示）
-            threading.Thread(target=self._auto_update_check, daemon=True).start()
+            # 启动后：默认弹出欢迎/关于窗口（含更新状态）；关闭后改为静默检查
+            cfg = self._load_config()
+            if cfg.get('show_welcome', True):
+                self.root.after(800, self.show_about)
+            else:
+                threading.Thread(target=self._startup_check, daemon=True).start()
         except Exception as e:
             logger.error(f"初始化 UI 失败: {traceback.format_exc()}")
             messagebox.showerror("错误", f"初始化失败: {e}\n请检查 access_log.txt")
@@ -1232,23 +1237,111 @@ class RealNetSimApp:
             self.root.destroy()
             sys.exit(0)
 
-    # ---- 关于 / GitHub 更新通道 ----
-    def show_about(self):
-        msg = (f"{APP_NAME}\n版本：v{APP_VERSION}\n\n"
-               f"模拟真人上网行为（短请求浏览 + 长连接视频流），\n"
-               f"用于 OpenClash / 代理链路连通性验证\n与 Smart 策略组训练数据采集。\n\n"
-               f"更新仓库：https://github.com/{UPDATE_REPO}")
-        messagebox.showinfo("关于", msg)
+    # ---- 关于 / 欢迎窗口 / GitHub 更新通道 ----
+    def _load_config(self):
+        try:
+            with open('realsurf_config.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_config(self, cfg):
+        try:
+            with open('realsurf_config.json', 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _set_update_status(self, text, style='secondary'):
+        # 刷新欢迎窗口里的状态文字（窗口未打开时静默忽略）
+        try:
+            if getattr(self, 'update_status_var', None):
+                self.update_status_var.set(text)
+            lbl = getattr(self, 'update_status_label', None)
+            if lbl is not None and lbl.winfo_exists():
+                lbl.configure(bootstyle=style)
+        except Exception:
+            pass
+
+    def show_about(self, startup=False):
+        # 单例：避免重复打开多个窗口
+        try:
+            if getattr(self, 'about_window', None) and self.about_window.winfo_exists():
+                self.about_window.lift()
+                self.about_window.focus_force()
+                return
+        except Exception:
+            pass
+        win = Toplevel(self.root)
+        win.title(f"关于 {APP_NAME}")
+        win.geometry("560x500")
+        win.resizable(False, False)
+        self.about_window = win
+
+        ttkb.Label(win, text=APP_NAME, font=("SimHei", 18, "bold")).pack(pady=(18, 2))
+        ttkb.Label(win, text=f"当前版本  v{APP_VERSION}", font=("SimHei", 11),
+                   bootstyle="secondary").pack()
+        ttkb.Separator(win).pack(fill="x", padx=24, pady=12)
+
+        intro = ("模拟真人上网行为：短请求浏览 + 长连接视频流，用于\n"
+                 "OpenClash / 代理链路连通性验证，以及 Smart 策略组\n"
+                 "训练数据采集。\n\n"
+                 "使用：设好并发数与访问间隔 → 走代理时勾选「跳过\n"
+                 "证书校验」→ 点「开始」。运行日志见程序同目录的\n"
+                 "access_log.txt。")
+        ttkb.Label(win, text=intro, font=("SimHei", 10), justify="left").pack(padx=26, anchor="w")
+        ttkb.Separator(win).pack(fill="x", padx=24, pady=12)
+
+        # 更新仓库链接（可点击）
+        repo_url = f"https://github.com/{UPDATE_REPO}"
+        row = ttkb.Frame(win)
+        row.pack(fill="x", padx=26)
+        ttkb.Label(row, text="更新仓库：", font=("SimHei", 10)).pack(side="left")
+        link = ttkb.Label(row, text=repo_url, font=("SimHei", 10, "underline"),
+                          bootstyle="info", cursor="hand2")
+        link.pack(side="left")
+        link.bind("<Button-1>", lambda e: webbrowser.open(repo_url))
+
+        # 更新状态行（启动检查/手动检查都会刷新这里）
+        self.update_status_var = tk.StringVar(value="更新状态：正在检查…")
+        self.update_status_label = ttkb.Label(win, textvariable=self.update_status_var,
+                                              font=("SimHei", 10), bootstyle="secondary")
+        self.update_status_label.pack(padx=26, pady=(10, 2), anchor="w")
+
+        # 是否下次启动仍自动显示
+        cfg = self._load_config()
+        show_var = tk.BooleanVar(value=bool(cfg.get('show_welcome', True)))
+        ttkb.Checkbutton(win, text="启动时自动显示本窗口", variable=show_var,
+                         bootstyle="round-toggle").pack(padx=26, pady=(6, 0), anchor="w")
+
+        def _close_about():
+            cfg2 = self._load_config()
+            cfg2['show_welcome'] = bool(show_var.get())
+            self._save_config(cfg2)
+            win.destroy()
+
+        btns = ttkb.Frame(win)
+        btns.pack(pady=14)
+        ttkb.Button(btns, text="检查更新", bootstyle=INFO,
+                    command=self.check_update_ui).pack(side="left", padx=6)
+        ttkb.Button(btns, text="打开仓库", bootstyle=OUTLINE,
+                    command=lambda: webbrowser.open(repo_url)).pack(side="left", padx=6)
+        ttkb.Button(btns, text="关闭", bootstyle=SECONDARY,
+                    command=_close_about).pack(side="left", padx=6)
+        win.protocol("WM_DELETE_WINDOW", _close_about)
+
+        # 打开即静默检查一次：结果只刷新状态行，绝不弹原始错误框
+        threading.Thread(target=self.check_update, args=(False, True), daemon=True).start()
 
     def check_update_ui(self):
         # 手动检查：开线程避免界面卡顿
-        threading.Thread(target=self.check_update, args=(True,), daemon=True).start()
+        threading.Thread(target=self.check_update, args=(True, False), daemon=True).start()
 
-    def _auto_update_check(self):
-        # 启动后静默检查一次（仅发现新版本才提示，无更新不打扰）
+    def _startup_check(self):
+        # 关闭了欢迎窗口时，仍静默检查一次（仅发现新版本才提示）
         try:
-            time.sleep(3)
-            self.check_update(manual=False)
+            time.sleep(2)
+            self.check_update(manual=False, quiet=True)
         except Exception:
             pass
 
@@ -1269,14 +1362,22 @@ class RealNetSimApp:
             parts.append(0)
         return tuple(parts[:3])
 
-    def check_update(self, manual=False):
+    def check_update(self, manual=False, quiet=False):
+        """检查 GitHub 更新。quiet=True 时只刷新状态行，绝不弹任何错误框。"""
         try:
             url = f"{GITHUB_API}/repos/{UPDATE_REPO}/releases/latest"
-            hdr = {'Accept': 'application/vnd.github+json', 'User-Agent': APP_NAME}
+            # 注意：HTTP 头必须是 latin-1 可编码，UA 只能用纯 ASCII
+            hdr = {'Accept': 'application/vnd.github+json', 'User-Agent': APP_UA}
             resp = requests.get(url, headers=hdr, timeout=15)
             if resp.status_code == 404:
+                self._set_update_status("更新状态：仓库尚未发布版本", 'warning')
                 if manual:
-                    messagebox.showinfo("检查更新", "该仓库尚未发布任何版本（GitHub 上没有 Release）。")
+                    messagebox.showinfo("检查更新", "还没发布任何版本，暂时无需更新。")
+                return
+            if resp.status_code == 403:
+                self._set_update_status("更新状态：请求过于频繁，请稍后再试", 'warning')
+                if manual:
+                    messagebox.showwarning("检查更新", "GitHub 请求过于频繁，请过几分钟再试。")
                 return
             resp.raise_for_status()
             rel = resp.json()
@@ -1284,12 +1385,13 @@ class RealNetSimApp:
             remote_ver = self._version_tuple(tag)
             local_ver = self._version_tuple(APP_VERSION)
             notes = rel.get('body', '') or ''
-            html_url = rel.get('html_url', f"https://github.com/{UPDATE_REPO}/releases/latest")
             if remote_ver <= local_ver:
+                self._set_update_status(f"更新状态：已是最新版本（v{APP_VERSION}）", 'success')
                 if manual:
-                    messagebox.showinfo("检查更新", f"已是最新版本 v{APP_VERSION}。")
+                    messagebox.showinfo("检查更新", f"已是最新版本 v{APP_VERSION}，无需更新。")
                 return
             # 发现新版本
+            self._set_update_status(f"更新状态：发现新版本 {tag}，可点「检查更新」升级", 'info')
             asset_url = None
             for a in rel.get('assets', []):
                 if a.get('name', '').lower().endswith('.exe'):
@@ -1301,24 +1403,29 @@ class RealNetSimApp:
                 if asset_url and messagebox.askyesno("发现新版本", info):
                     self._apply_update(asset_url, tag)
                 elif not asset_url:
-                    webbrowser.open(html_url)
+                    webbrowser.open(rel.get('html_url',
+                                            f"https://github.com/{UPDATE_REPO}/releases/latest"))
             else:
-                # 自动模式：仅轻量提示，不阻塞后台线程
-                logger.info(f"发现新版本 {tag}（当前 v{APP_VERSION}），请用菜单「检查更新」更新")
-                try:
-                    self.root.after(0, lambda: messagebox.showinfo(
-                        "发现新版本",
-                        f"发现新版本 {tag}（当前 v{APP_VERSION}）。\n请点击菜单「文件 → 检查更新」下载替换。"))
-                except Exception:
-                    pass
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"检查更新失败(网络): {e}")
+                logger.info(f"发现新版本 {tag}（当前 v{APP_VERSION}）")
+                if quiet:
+                    # 无窗口时用主线程弹一次轻提示（非阻塞后台线程）
+                    try:
+                        self.root.after(0, lambda: messagebox.showinfo(
+                            "发现新版本",
+                            f"发现新版本 {tag}（当前 v{APP_VERSION}）。\n请用菜单「文件 → 检查更新」升级。"))
+                    except Exception:
+                        pass
+        except requests.exceptions.RequestException:
+            # 网络类失败：只记日志 + 刷新状态行，绝不把原始异常抛给用户
+            self._set_update_status("更新状态：无法连接更新服务器（请检查网络/代理）", 'warning')
+            logger.warning("检查更新失败：无法连接 GitHub（网络或代理问题）")
             if manual:
-                messagebox.showwarning("检查更新", f"检查更新失败：{e}")
+                messagebox.showwarning("检查更新", "无法连接更新服务器。\n请检查网络或代理设置后再试。")
         except Exception as e:
+            self._set_update_status("更新状态：检查更新失败", 'warning')
             logger.error(f"检查更新异常: {e}")
             if manual:
-                messagebox.showerror("检查更新", f"检查更新异常：{e}")
+                messagebox.showerror("检查更新", "检查更新时出现问题，请稍后再试。")
 
     def _apply_update(self, asset_url, new_version):
         import tempfile, os, sys, subprocess
@@ -1348,7 +1455,8 @@ class RealNetSimApp:
         except Exception as e:
             logger.error(f"更新失败: {e}")
             webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
-            messagebox.showerror("更新失败", f"自动更新失败：{e}\n已为你打开发布页手动下载。")
+            messagebox.showerror("更新失败",
+                "自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf.exe 覆盖即可。")
 
 
 def main():
