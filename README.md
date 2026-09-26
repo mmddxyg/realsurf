@@ -4,8 +4,9 @@
 
 > 模拟真人上网行为的轻量工具，用于 **OpenClash / 代理链路连通性验证**、**Smart 策略组训练数据采集** 与 **AdGuardHome (ADG) DNS 缓存预热 / 命中测试**。
 
-![public](https://img.shields.io/badge/visibility-公开仓库-brightgreen)
-![lang](https://img.shields.io/badge/语言-中文%20%7C%20English%20%7C%20Tiếng%20Việt-blue)
+**🌐 语言 / Language / Ngôn ngữ：** [中文](#中文) · [English](#english) · [Tiếng Việt](#tiếng-việt)
+
+<sub>公开仓库 · Public repository · Kho công khai</sub>
 
 ---
 
@@ -77,6 +78,8 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 
 当前版本：`v1.1.0`
 
+[↑ 回到顶部](#拟真冲浪-realsurf) · [切换到 English](#english) · [Chuyển sang Tiếng Việt](#tiếng-việt)
+
 ---
 
 ## English
@@ -140,6 +143,8 @@ Output: `dist/realsurf.exe`.
 
 Current version: `v1.1.0`
 
+[↑ Back to top](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Chuyển sang Tiếng Việt](#tiếng-việt)
+
 ---
 
 ## Tiếng Việt
@@ -202,3 +207,5 @@ Kết quả: `dist/realsurf.exe`.
 ### Phiên bản
 
 Phiên bản hiện tại: `v1.1.0`
+
+[↑ Về đầu](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Switch to English](#english)
