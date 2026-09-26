@@ -49,10 +49,231 @@ import traceback
 import webbrowser
 
 # ---------------------------------------------------------------------------
-# 中文字体（图表用）
+# 多语言 / i18n（中文 / English / Tiếng Việt）
 # ---------------------------------------------------------------------------
-plt.rcParams['font.sans-serif'] = ['SimHei']
-plt.rcParams['axes.unicode_minus'] = False
+import ctypes  # 仅用于读取 Windows 默认 UI 语言；失败时回退英文
+
+# 各语言字体：UI 用 UI_FONT，matplotlib 图表用 CHART_FONT
+LANG_FONTS = {
+    'zh': ('SimHei', 'SimHei'),
+    'en': ('Segoe UI', 'DejaVu Sans'),
+    'vi': ('Segoe UI', 'DejaVu Sans'),
+}
+
+I18N = {
+    'zh': {
+        'menu_file': '文件', 'menu_sites': '站点列表', 'menu_export': '导出站点列表(JSON)',
+        'menu_check_update': '检查更新', 'menu_about': '关于', 'menu_exit': '退出',
+        'menu_language': '语言', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}',
+        'lbl_threads': '最大并发线程 (1-20):', 'lbl_interval': '访问间隔 (秒, 5-30):',
+        'chk_verify': '跳过证书校验(代理环境)', 'lbl_stream_prob': '长连接比例(0-50):',
+        'lbl_stream_dur': '单次观看(秒,20-120):', 'btn_start': '开始', 'btn_stop': '停止',
+        'lbl_requests': '请求总数: {n}', 'lbl_errors': '错误总数: {n}',
+        'net_ok': '网络状态: 正常', 'net_down': '网络状态: 断联恢复中…',
+        'editor_title': '站点列表编辑',
+        'editor_tip': '选中行后可批量删除 · 右键菜单 · Delete 键删除 · Ctrl+A 全选 · 域名框回车即添加',
+        'col_site': '网站名称', 'col_domain': '域名',
+        'btn_del_sel': '删除选中', 'btn_select_all': '全选', 'btn_deselect': '取消选择',
+        'btn_export': '导出 JSON', 'btn_refresh': '刷新列表', 'btn_close': '关闭',
+        'lbl_site_name': '网站名称:', 'lbl_domains': '域名(逗号分隔,可带http):',
+        'btn_add': '添加网站', 'ctx_del': '删除选中域名',
+        'err_title': '错误', 'warn_title': '警告',
+        'warn_select': '请至少选择一个域名',
+        'confirm_del_title': '确认删除',
+        'confirm_del': '即将删除选中的 {n} 个域名，确定继续？',
+        'err_site_name': '请输入网站名称和至少一个域名',
+        'err_del_fail': '删除域名失败: {e}', 'err_add_fail': '添加域名失败: {e}\n请检查 access_log.txt',
+        'export_ok_title': '导出成功', 'export_ok': '已导出到 sites_export.json',
+        'err_export': '导出失败: {e}',
+        'init_fail': '初始化失败: {e}\n请检查 access_log.txt',
+        'err_threads': '并发线程数必须在 1-20 之间，使用默认值 16',
+        'exit_title': '退出', 'exit_confirm': '确定要退出吗？',
+        'chart_title': '各站点实时网速与状态', 'chart_title_idle': '各站点实时网速与状态（暂无活动）',
+        'chart_ylabel': '网速 (KB/s)',
+        'about_intro': '模拟真人上网行为：短请求浏览 + 长连接视频流，用于\n'
+                       'OpenClash / 代理链路连通性验证，以及 Smart 策略组\n'
+                       '训练数据采集。\n\n'
+                       '使用：设好并发数与访问间隔 → 走代理时勾选「跳过\n'
+                       '证书校验」→ 点「开始」。运行日志见程序同目录的\n'
+                       'access_log.txt。',
+        'about_repo_label': '更新仓库：', 'about_status_checking': '更新状态：正在检查…',
+        'about_autoshow': '启动时自动显示本窗口',
+        'btn_check_update': '检查更新', 'btn_open_repo': '打开仓库',
+        'upd_no_release': '更新状态：仓库尚未发布版本',
+        'upd_no_release_msg': '还没发布任何版本，暂时无需更新。',
+        'upd_rate_limit': '更新状态：请求过于频繁，请稍后再试',
+        'upd_rate_limit_msg': 'GitHub 请求过于频繁，请过几分钟再试。',
+        'upd_latest': '更新状态：已是最新版本（v{ver}）',
+        'upd_latest_msg': '已是最新版本 v{ver}，无需更新。',
+        'upd_found_status': '更新状态：发现新版本 {tag}，可点「检查更新」升级',
+        'upd_found_msg': '发现新版本 {tag}（当前 v{ver}）\n\n{notes}\n\n是否下载并自动替换？',
+        'upd_found_quiet': '发现新版本 {tag}（当前 v{ver}）。\n请用菜单「文件 → 检查更新」升级。',
+        'upd_conn_fail': '更新状态：无法连接更新服务器（请检查网络/代理）',
+        'upd_conn_fail_msg': '无法连接更新服务器。\n请检查网络或代理设置后再试。',
+        'upd_fail_status': '更新状态：检查更新失败',
+        'upd_fail_msg': '检查更新时出现问题，请稍后再试。',
+        'upd_apply_fail_title': '更新失败',
+        'upd_apply_fail_msg': '自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf.exe 覆盖即可。',
+    },
+    'en': {
+        'menu_file': 'File', 'menu_sites': 'Site List', 'menu_export': 'Export Site List (JSON)',
+        'menu_check_update': 'Check for Update', 'menu_about': 'About', 'menu_exit': 'Exit',
+        'menu_language': 'Language', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': 'About {name}', 'about_ver': 'Version  v{ver}',
+        'lbl_threads': 'Max Threads (1-20):', 'lbl_interval': 'Visit Interval (s, 5-30):',
+        'chk_verify': 'Skip Cert Verify (proxy)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
+        'lbl_stream_dur': 'Watch Duration (s, 20-120):', 'btn_start': 'Start', 'btn_stop': 'Stop',
+        'lbl_requests': 'Total Requests: {n}', 'lbl_errors': 'Total Errors: {n}',
+        'net_ok': 'Network: OK', 'net_down': 'Network: Reconnecting…',
+        'editor_title': 'Site List Editor',
+        'editor_tip': 'Select rows to batch-delete · Right-click menu · Delete key · Ctrl+A select all · Enter in domain box to add',
+        'col_site': 'Site Name', 'col_domain': 'Domain',
+        'btn_del_sel': 'Delete Selected', 'btn_select_all': 'Select All', 'btn_deselect': 'Deselect',
+        'btn_export': 'Export JSON', 'btn_refresh': 'Refresh', 'btn_close': 'Close',
+        'lbl_site_name': 'Site Name:', 'lbl_domains': 'Domains (comma-separated, with http):',
+        'btn_add': 'Add Site', 'ctx_del': 'Delete Selected Domain',
+        'err_title': 'Error', 'warn_title': 'Warning',
+        'warn_select': 'Please select at least one domain',
+        'confirm_del_title': 'Confirm Delete',
+        'confirm_del': 'About to delete {n} selected domain(s). Continue?',
+        'err_site_name': 'Enter a site name and at least one domain',
+        'err_del_fail': 'Failed to delete domain: {e}', 'err_add_fail': 'Failed to add domain: {e}\nCheck access_log.txt',
+        'export_ok_title': 'Exported', 'export_ok': 'Exported to sites_export.json',
+        'err_export': 'Export failed: {e}',
+        'init_fail': 'Init failed: {e}\nCheck access_log.txt',
+        'err_threads': 'Thread count must be 1-20; using default 16',
+        'exit_title': 'Exit', 'exit_confirm': 'Exit the application?',
+        'chart_title': 'Real-time Speed & Status per Site', 'chart_title_idle': 'Real-time Speed & Status (no activity yet)',
+        'chart_ylabel': 'Speed (KB/s)',
+        'about_intro': 'Simulates realistic human browsing: short requests + long video streams.\n'
+                       'For OpenClash / proxy link connectivity checks and Smart group\n'
+                       'training data collection.\n\n'
+                       'Usage: set threads & interval → check "Skip Cert Verify" when behind a\n'
+                       'proxy → click Start. Logs are in access_log.txt next to the app.',
+        'about_repo_label': 'Update Repo:', 'about_status_checking': 'Update: checking…',
+        'about_autoshow': 'Show this window on startup',
+        'btn_check_update': 'Check Update', 'btn_open_repo': 'Open Repo',
+        'upd_no_release': 'Update: no release published',
+        'upd_no_release_msg': 'No release yet; nothing to update.',
+        'upd_rate_limit': 'Update: rate limited, retry later',
+        'upd_rate_limit_msg': 'GitHub rate limit; retry in a few minutes.',
+        'upd_latest': 'Update: already latest (v{ver})',
+        'upd_latest_msg': 'Already latest v{ver}; no update needed.',
+        'upd_found_status': 'Update: new version {tag} found',
+        'upd_found_msg': 'New version {tag} (current v{ver})\n\n{notes}\n\nDownload and auto-replace?',
+        'upd_found_quiet': 'New version {tag} (current v{ver}).\nUse menu "File → Check for Update" to upgrade.',
+        'upd_conn_fail': 'Update: cannot reach server (check network/proxy)',
+        'upd_conn_fail_msg': 'Cannot reach update server.\nCheck network or proxy settings.',
+        'upd_fail_status': 'Update: check failed',
+        'upd_fail_msg': 'Problem during update check; retry later.',
+        'upd_apply_fail_title': 'Update Failed',
+        'upd_apply_fail_msg': 'Auto-update incomplete; release page opened.\nDownload latest realsurf.exe manually.',
+    },
+    'vi': {
+        'menu_file': 'Tập tin', 'menu_sites': 'Danh sách trang', 'menu_export': 'Xuất danh sách (JSON)',
+        'menu_check_update': 'Kiểm tra cập nhật', 'menu_about': 'Giới thiệu', 'menu_exit': 'Thoát',
+        'menu_language': 'Ngôn ngữ', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
+        'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}',
+        'lbl_threads': 'Số luồng tối đa (1-20):', 'lbl_interval': 'Khoảng cách truy cập (giây, 5-30):',
+        'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
+        'lbl_stream_dur': 'Thời gian xem (giây, 20-120):', 'btn_start': 'Bắt đầu', 'btn_stop': 'Dừng',
+        'lbl_requests': 'Tổng yêu cầu: {n}', 'lbl_errors': 'Tổng lỗi: {n}',
+        'net_ok': 'Mạng: Bình thường', 'net_down': 'Mạng: Đang kết nối lại…',
+        'editor_title': 'Trình biên tập danh sách',
+        'editor_tip': 'Chọn dòng để xóa hàng loạt · Menu chuột phải · Phím Delete · Ctrl+A chọn tất cả · Enter trong ô tên miền để thêm',
+        'col_site': 'Tên trang', 'col_domain': 'Tên miền',
+        'btn_del_sel': 'Xóa đã chọn', 'btn_select_all': 'Chọn tất cả', 'btn_deselect': 'Bỏ chọn',
+        'btn_export': 'Xuất JSON', 'btn_refresh': 'Làm mới', 'btn_close': 'Đóng',
+        'lbl_site_name': 'Tên trang:', 'lbl_domains': 'Tên miền (cách nhau bằng dấu phẩy, có http):',
+        'btn_add': 'Thêm trang', 'ctx_del': 'Xóa tên miền đã chọn',
+        'err_title': 'Lỗi', 'warn_title': 'Cảnh báo',
+        'warn_select': 'Vui lòng chọn ít nhất một tên miền',
+        'confirm_del_title': 'Xác nhận xóa',
+        'confirm_del': 'Sắp xóa {n} tên miền đã chọn. Tiếp tục?',
+        'err_site_name': 'Nhập tên trang và ít nhất một tên miền',
+        'err_del_fail': 'Lỗi xóa tên miền: {e}', 'err_add_fail': 'Lỗi thêm tên miền: {e}\nKiểm tra access_log.txt',
+        'export_ok_title': 'Đã xuất', 'export_ok': 'Đã xuất ra sites_export.json',
+        'err_export': 'Lỗi xuất: {e}',
+        'init_fail': 'Lỗi khởi tạo: {e}\nKiểm tra access_log.txt',
+        'err_threads': 'Số luồng phải từ 1-20; dùng mặc định 16',
+        'exit_title': 'Thoát', 'exit_confirm': 'Thoát ứng dụng?',
+        'chart_title': 'Tốc độ & trạng thái theo trang', 'chart_title_idle': 'Tốc độ & trạng thái (chưa có hoạt động)',
+        'chart_ylabel': 'Tốc độ (KB/s)',
+        'about_intro': 'Mô phỏng lướt web thật của con người: truy cập ngắn + luồng video dài.\n'
+                       'Dùng để kiểm tra kết nối OpenClash / proxy và thu thập dữ liệu\n'
+                       'huấn luyện nhóm Smart.\n\n'
+                       'Cách dùng: chỉnh luồng & khoảng cách → khi qua proxy hãy tích\n'
+                       '"Bỏ xác thực chứng chỉ" → bấm Bắt đầu. Nhật ký ở access_log.txt.',
+        'about_repo_label': 'Kho cập nhật:', 'about_status_checking': 'Cập nhật: đang kiểm tra…',
+        'about_autoshow': 'Hiện cửa sổ này khi khởi động',
+        'btn_check_update': 'Kiểm tra cập nhật', 'btn_open_repo': 'Mở kho',
+        'upd_no_release': 'Cập nhật: chưa có bản phát hành',
+        'upd_no_release_msg': 'Chưa có bản phát hành nào.',
+        'upd_rate_limit': 'Cập nhật: bị giới hạn, thử lại sau',
+        'upd_rate_limit_msg': 'GitHub giới hạn; thử lại sau vài phút.',
+        'upd_latest': 'Cập nhật: đã là mới nhất (v{ver})',
+        'upd_latest_msg': 'Đã là mới nhất v{ver}; không cần cập nhật.',
+        'upd_found_status': 'Cập nhật: tìm thấy phiên bản mới {tag}',
+        'upd_found_msg': 'Phiên bản mới {tag} (hiện tại v{ver})\n\n{notes}\n\nTải và tự thay thế?',
+        'upd_found_quiet': 'Phiên bản mới {tag} (hiện tại v{ver}).\nDùng menu "Tập tin → Kiểm tra cập nhật" để nâng cấp.',
+        'upd_conn_fail': 'Cập nhật: không thể kết nối (kiểm tra mạng/proxy)',
+        'upd_conn_fail_msg': 'Không thể kết nối máy chủ cập nhật.\nKiểm tra mạng hoặc proxy.',
+        'upd_fail_status': 'Cập nhật: kiểm tra thất bại',
+        'upd_fail_msg': 'Lỗi khi kiểm tra cập nhật; thử lại sau.',
+        'upd_apply_fail_title': 'Cập nhật thất bại',
+        'upd_apply_fail_msg': 'Tự cập nhật chưa xong; đã mở trang phát hành.\nTải realsurf.exe mới nhất thủ công.',
+    },
+}
+
+
+def detect_windows_language():
+    """根据 Windows 默认 UI 语言自动选择：中文系列→zh，越南语→vi，其余→en。"""
+    try:
+        lid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        prim = lid & 0x3FF
+        if prim == 0x04:
+            return 'zh'
+        if prim == 0x2A:
+            return 'vi'
+        return 'en'
+    except Exception:
+        return 'en'
+
+
+CURRENT_LANG = detect_windows_language()
+UI_FONT = 'SimHei'
+CHART_FONT = 'SimHei'
+
+
+def set_lang_fonts():
+    global UI_FONT, CHART_FONT
+    uf, cf = LANG_FONTS.get(CURRENT_LANG, LANG_FONTS['en'])
+    UI_FONT, CHART_FONT = uf, cf
+    plt.rcParams['font.sans-serif'] = [cf]
+    plt.rcParams['axes.unicode_minus'] = False
+
+
+def set_language(code):
+    global CURRENT_LANG
+    if code in I18N:
+        CURRENT_LANG = code
+        set_lang_fonts()
+
+
+def _(key, **kw):
+    d = I18N.get(CURRENT_LANG) or I18N['en']
+    s = d.get(key, I18N['en'].get(key, key))
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+# 立即按当前语言设置字体（图表用）
+set_lang_fonts()
 
 # ---------------------------------------------------------------------------
 # 日志
@@ -496,7 +717,7 @@ STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
@@ -591,6 +812,12 @@ class RealNetSimApp:
         logger.addHandler(self.queue_handler)
 
         try:
+            # 按配置(或 Windows 默认语言)确定界面语言
+            cfg0 = self._load_config()
+            lang0 = cfg0.get('language')
+            if lang0 in I18N:
+                set_language(lang0)
+            set_lang_fonts()
             self.create_menu()
             self.create_widgets()
             self.update_log()
@@ -604,22 +831,31 @@ class RealNetSimApp:
                 threading.Thread(target=self._startup_check, daemon=True).start()
         except Exception as e:
             logger.error(f"初始化 UI 失败: {traceback.format_exc()}")
-            messagebox.showerror("错误", f"初始化失败: {e}\n请检查 access_log.txt")
+            messagebox.showerror(_("err_title"), _("init_fail", e=e))
             sys.exit(1)
 
     # ---- 菜单 ----
     def create_menu(self):
-        menubar = tk.Menu(self.root)
+        menubar = tk.Menu(self.root, tearoff=0)
         self.root.config(menu=menubar)
+        self.menubar = menubar
         file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="文件", menu=file_menu)
-        file_menu.add_command(label="站点列表", command=self.open_domain_editor)
-        file_menu.add_command(label="导出站点列表(JSON)", command=self.export_sites)
+        self.file_menu = file_menu
+        menubar.add_cascade(label=_("menu_file"), menu=file_menu)
+        file_menu.add_command(label=_("menu_sites"), command=self.open_domain_editor)
+        file_menu.add_command(label=_("menu_export"), command=self.export_sites)
         file_menu.add_separator()
-        file_menu.add_command(label="检查更新", command=self.check_update_ui)
-        file_menu.add_command(label="关于", command=self.show_about)
+        file_menu.add_command(label=_("menu_check_update"), command=self.check_update_ui)
+        file_menu.add_command(label=_("menu_about"), command=self.show_about)
         file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.on_closing)
+        file_menu.add_command(label=_("menu_exit"), command=self.on_closing)
+        # 语言子菜单
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        self.lang_menu = lang_menu
+        lang_menu.add_command(label=_("lang_zh"), command=lambda: self.switch_language('zh'))
+        lang_menu.add_command(label=_("lang_en"), command=lambda: self.switch_language('en'))
+        lang_menu.add_command(label=_("lang_vi"), command=lambda: self.switch_language('vi'))
+        menubar.add_cascade(label=_("menu_language"), menu=lang_menu)
 
     # ---- 控件 ----
     def create_widgets(self):
@@ -632,28 +868,32 @@ class RealNetSimApp:
         input_frame = ttkb.Frame(main_frame, padding="10")
         input_frame.grid(row=0, column=0, sticky="ew")
 
-        ttkb.Label(input_frame, text="最大并发线程 (1-20):", font=("SimHei", 12)).grid(row=0, column=0, padx=5)
-        self.threads_entry = ttkb.Entry(input_frame, width=5, font=("SimHei", 12))
+        self.threads_label = ttkb.Label(input_frame, text=_("lbl_threads"), font=(UI_FONT, 12))
+        self.threads_label.grid(row=0, column=0, padx=5)
+        self.threads_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.threads_entry.insert(0, "16")
         self.threads_entry.grid(row=0, column=1, padx=5)
 
-        ttkb.Label(input_frame, text="访问间隔 (秒, 5-30):", font=("SimHei", 12)).grid(row=0, column=2, padx=5)
-        self.interval_entry = ttkb.Entry(input_frame, width=5, font=("SimHei", 12))
+        self.interval_label = ttkb.Label(input_frame, text=_("lbl_interval"), font=(UI_FONT, 12))
+        self.interval_label.grid(row=0, column=2, padx=5)
+        self.interval_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.interval_entry.insert(0, "10")
         self.interval_entry.grid(row=0, column=3, padx=5)
 
         self.verify_check = ttkb.Checkbutton(
-            input_frame, text="跳过证书校验(代理环境)",
+            input_frame, text=_("chk_verify"),
             variable=self.verify_var, bootstyle="round-toggle")
         self.verify_check.grid(row=0, column=4, padx=10)
 
-        ttkb.Label(input_frame, text="长连接比例(0-50):", font=("SimHei", 12)).grid(row=0, column=5, padx=5)
-        self.stream_prob_entry = ttkb.Entry(input_frame, width=5, font=("SimHei", 12))
+        self.stream_prob_label = ttkb.Label(input_frame, text=_("lbl_stream_prob"), font=(UI_FONT, 12))
+        self.stream_prob_label.grid(row=0, column=5, padx=5)
+        self.stream_prob_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.stream_prob_entry.insert(0, "20")
         self.stream_prob_entry.grid(row=0, column=6, padx=5)
 
-        ttkb.Label(input_frame, text="单次观看(秒,20-120):", font=("SimHei", 12)).grid(row=0, column=7, padx=5)
-        self.stream_dur_entry = ttkb.Entry(input_frame, width=5, font=("SimHei", 12))
+        self.stream_dur_label = ttkb.Label(input_frame, text=_("lbl_stream_dur"), font=(UI_FONT, 12))
+        self.stream_dur_label.grid(row=0, column=7, padx=5)
+        self.stream_dur_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.stream_dur_entry.insert(0, "45")
         self.stream_dur_entry.grid(row=0, column=8, padx=5)
 
@@ -661,9 +901,9 @@ class RealNetSimApp:
         button_frame = ttkb.Frame(main_frame, padding="10")
         button_frame.grid(row=1, column=0, sticky="ew")
 
-        self.start_button = ttkb.Button(button_frame, text="开始", command=self.start_test, bootstyle=PRIMARY)
+        self.start_button = ttkb.Button(button_frame, text=_("btn_start"), command=self.start_test, bootstyle=PRIMARY)
         self.start_button.grid(row=0, column=0, padx=5)
-        self.stop_button = ttkb.Button(button_frame, text="停止", command=self.stop_test,
+        self.stop_button = ttkb.Button(button_frame, text=_("btn_stop"), command=self.stop_test,
                                        state="disabled", bootstyle=DANGER)
         self.stop_button.grid(row=0, column=1, padx=5)
 
@@ -671,17 +911,17 @@ class RealNetSimApp:
         status_frame = ttkb.Frame(main_frame, padding="10")
         status_frame.grid(row=2, column=0, sticky="ew")
 
-        self.request_label = ttkb.Label(status_frame, text="请求总数: 0", font=("SimHei", 12))
+        self.request_label = ttkb.Label(status_frame, text=_("lbl_requests", n=0), font=(UI_FONT, 12))
         self.request_label.grid(row=0, column=0, padx=5)
-        self.error_label = ttkb.Label(status_frame, text="错误总数: 0", font=("SimHei", 12))
+        self.error_label = ttkb.Label(status_frame, text=_("lbl_errors", n=0), font=(UI_FONT, 12))
         self.error_label.grid(row=0, column=1, padx=5)
-        self.net_label = ttkb.Label(status_frame, text="网络状态: 正常", font=("SimHei", 12),
+        self.net_label = ttkb.Label(status_frame, text=_("net_ok"), font=(UI_FONT, 12),
                                     bootstyle="success")
         self.net_label.grid(row=0, column=2, padx=15)
 
         # 日志显示
         self.log_text = scrolledtext.ScrolledText(main_frame, height=10, width=90,
-                                                  state="disabled", font=("SimHei", 10))
+                                                  state="disabled", font=(UI_FONT, 10))
         self.log_text.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
 
         # 图表
@@ -699,15 +939,14 @@ class RealNetSimApp:
             self.editor_window.focus_force()
             return
         editor_window = Toplevel(self.root)
-        editor_window.title("站点列表编辑")
+        editor_window.title(_("editor_title"))
         editor_window.geometry("860x640")
         editor_window.minsize(720, 480)
         self.editor_window = editor_window
 
         # 顶部提示
-        tip = ttkb.Label(editor_window,
-                         text="选中行后可批量删除 · 右键菜单 · Delete 键删除 · Ctrl+A 全选 · 域名框回车即添加",
-                         font=("SimHei", 10), bootstyle="secondary")
+        tip = ttkb.Label(editor_window, text=_("editor_tip"),
+                         font=(UI_FONT, 10), bootstyle="secondary")
         tip.pack(side="top", fill="x", padx=10, pady=(6, 0))
 
         # 列表 + 滚动条
@@ -715,8 +954,8 @@ class RealNetSimApp:
         list_frame.pack(side="top", fill="both", expand=True, padx=10, pady=6)
         self.domain_listbox = ttkb.Treeview(list_frame, columns=("Site", "Domain"),
                                             show="headings", selectmode="extended")
-        self.domain_listbox.heading("Site", text="网站名称")
-        self.domain_listbox.heading("Domain", text="域名")
+        self.domain_listbox.heading("Site", text=_("col_site"))
+        self.domain_listbox.heading("Domain", text=_("col_domain"))
         self.domain_listbox.column("Site", width=200, anchor="w")
         self.domain_listbox.column("Domain", width=560, anchor="w")
         self.domain_listbox.pack(side="left", fill="both", expand=True)
@@ -727,36 +966,45 @@ class RealNetSimApp:
         # 操作按钮栏
         btn_frame = ttkb.Frame(editor_window, padding=(10, 4))
         btn_frame.pack(side="top", fill="x")
-        ttkb.Button(btn_frame, text="删除选中", command=self.delete_domains,
-                    bootstyle=DANGER).pack(side="left", padx=4)
-        ttkb.Button(btn_frame, text="全选", command=self._select_all_domains,
-                    bootstyle=INFO).pack(side="left", padx=4)
-        ttkb.Button(btn_frame, text="取消选择",
+        self.editor_btn_del = ttkb.Button(btn_frame, text=_("btn_del_sel"), command=self.delete_domains,
+                    bootstyle=DANGER)
+        self.editor_btn_del.pack(side="left", padx=4)
+        self.editor_btn_all = ttkb.Button(btn_frame, text=_("btn_select_all"), command=self._select_all_domains,
+                    bootstyle=INFO)
+        self.editor_btn_all.pack(side="left", padx=4)
+        self.editor_btn_desel = ttkb.Button(btn_frame, text=_("btn_deselect"),
                     command=lambda: self.domain_listbox.selection_remove(
                         *self.domain_listbox.selection()),
-                    bootstyle=INFO).pack(side="left", padx=4)
-        ttkb.Button(btn_frame, text="导出 JSON", command=self.export_sites,
-                    bootstyle=OUTLINE).pack(side="left", padx=4)
-        ttkb.Button(btn_frame, text="刷新列表", command=self.update_domain_list,
-                    bootstyle=OUTLINE).pack(side="left", padx=4)
-        ttkb.Button(btn_frame, text="关闭", command=editor_window.destroy,
-                    bootstyle=SECONDARY).pack(side="right", padx=4)
+                    bootstyle=INFO)
+        self.editor_btn_desel.pack(side="left", padx=4)
+        self.editor_btn_exp = ttkb.Button(btn_frame, text=_("btn_export"), command=self.export_sites,
+                    bootstyle=OUTLINE)
+        self.editor_btn_exp.pack(side="left", padx=4)
+        self.editor_btn_ref = ttkb.Button(btn_frame, text=_("btn_refresh"), command=self.update_domain_list,
+                    bootstyle=OUTLINE)
+        self.editor_btn_ref.pack(side="left", padx=4)
+        self.editor_btn_close = ttkb.Button(btn_frame, text=_("btn_close"), command=editor_window.destroy,
+                    bootstyle=SECONDARY)
+        self.editor_btn_close.pack(side="right", padx=4)
 
         # 新增网站输入栏
         add_frame = ttkb.Frame(editor_window, padding=(10, 8))
         add_frame.pack(side="top", fill="x")
-        ttkb.Label(add_frame, text="网站名称:", font=("SimHei", 12)).pack(side="left", padx=5)
-        self.site_name_entry = ttkb.Entry(add_frame, width=16, font=("SimHei", 12))
+        self.editor_site_lbl = ttkb.Label(add_frame, text=_("lbl_site_name"), font=(UI_FONT, 12))
+        self.editor_site_lbl.pack(side="left", padx=5)
+        self.site_name_entry = ttkb.Entry(add_frame, width=16, font=(UI_FONT, 12))
         self.site_name_entry.pack(side="left", padx=5)
-        ttkb.Label(add_frame, text="域名(逗号分隔,可带http):", font=("SimHei", 12)).pack(side="left", padx=5)
-        self.domain_list_entry = ttkb.Entry(add_frame, width=36, font=("SimHei", 12))
+        self.editor_dom_lbl = ttkb.Label(add_frame, text=_("lbl_domains"), font=(UI_FONT, 12))
+        self.editor_dom_lbl.pack(side="left", padx=5)
+        self.domain_list_entry = ttkb.Entry(add_frame, width=36, font=(UI_FONT, 12))
         self.domain_list_entry.pack(side="left", padx=5, fill="x", expand=True)
-        ttkb.Button(add_frame, text="添加网站", command=self.add_domain,
-                    bootstyle=SUCCESS).pack(side="left", padx=5)
+        self.editor_btn_add = ttkb.Button(add_frame, text=_("btn_add"), command=self.add_domain,
+                    bootstyle=SUCCESS)
+        self.editor_btn_add.pack(side="left", padx=5)
 
         # 右键菜单 + 键盘快捷键
         context_menu = tk.Menu(self.domain_listbox, tearoff=0)
-        context_menu.add_command(label="删除选中域名", command=self.delete_domains)
+        context_menu.add_command(label=_("ctx_del"), command=self.delete_domains)
         self.domain_listbox.bind("<Button-3>",
                                  lambda event: context_menu.post(event.x_root, event.y_root))
         self.domain_listbox.bind("<Delete>", lambda e: self.delete_domains())
@@ -773,11 +1021,11 @@ class RealNetSimApp:
                 return
             selected = self.domain_listbox.selection()
             if not selected:
-                messagebox.showwarning("警告", "请至少选择一个域名")
+                messagebox.showwarning(_("warn_title"), _("warn_select"))
                 return
             # 批量删除前先确认，避免误删
-            if not messagebox.askyesno("确认删除",
-                                       f"即将删除选中的 {len(selected)} 个域名，确定继续？"):
+            if not messagebox.askyesno(_("confirm_del_title"),
+                                       _("confirm_del", n=len(selected))):
                 return
             for item in selected:
                 site_name, domain = self.domain_listbox.item(item, "values")
@@ -792,7 +1040,7 @@ class RealNetSimApp:
             self.update_chart()
         except Exception as e:
             logger.error(f"删除域名失败: {traceback.format_exc()}")
-            messagebox.showerror("错误", f"删除域名失败: {e}")
+            messagebox.showerror(_("err_title"), _("err_del_fail", e=e))
 
     def _select_all_domains(self):
         try:
@@ -805,7 +1053,7 @@ class RealNetSimApp:
             site_name = self.site_name_entry.get().strip()
             domain_list = [d.strip() for d in self.domain_list_entry.get().split(',') if d.strip()]
             if not site_name or not domain_list:
-                messagebox.showerror("错误", "请输入网站名称和至少一个域名")
+                messagebox.showerror(_("err_title"), _("err_site_name"))
                 return
             for i, domain in enumerate(domain_list):
                 if not domain.startswith(('http://', 'https://')):
@@ -822,15 +1070,15 @@ class RealNetSimApp:
             self.update_chart()
         except Exception as e:
             logger.error(f"添加域名失败: {traceback.format_exc()}")
-            messagebox.showerror("错误", f"添加域名失败: {e}\n请检查 access_log.txt")
+            messagebox.showerror(_("err_title"), _("err_add_fail", e=e))
 
     def export_sites(self):
         try:
             with open("sites_export.json", "w", encoding="utf-8") as f:
                 json.dump(WEBSITES, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("导出成功", "已导出到 sites_export.json")
+            messagebox.showinfo(_("export_ok_title"), _("export_ok"))
         except Exception as e:
-            messagebox.showerror("错误", f"导出失败: {e}")
+            messagebox.showerror(_("err_title"), _("err_export", e=e))
 
     # ---- 日志/图表/计数 刷新 ----
     def update_log(self):
@@ -868,7 +1116,7 @@ class RealNetSimApp:
 
             if not sites:
                 self.ax.clear()
-                self.ax.set_title('各站点实时网速与状态（暂无活动）', fontproperties='SimHei')
+                self.ax.set_title(_('chart_title_idle'), fontproperties=CHART_FONT)
                 self.fig.tight_layout()
                 self.canvas.draw()
                 if not stop_event.is_set():
@@ -878,8 +1126,8 @@ class RealNetSimApp:
             self.ax.clear()
             colors = [self._status_color(st) for st in statuses]
             bars = self.ax.bar(sites, speeds, color=colors)
-            self.ax.set_ylabel('网速 (KB/s)', fontproperties='SimHei')
-            self.ax.set_title('各站点实时网速与状态', fontproperties='SimHei')
+            self.ax.set_ylabel(_('chart_ylabel'), fontproperties=CHART_FONT)
+            self.ax.set_title(_('chart_title'), fontproperties=CHART_FONT)
             self.ax.tick_params(axis='x', labelrotation=45, labelsize=7)
 
             for bar, status in zip(bars, statuses):
@@ -895,12 +1143,12 @@ class RealNetSimApp:
 
     def update_counters(self):
         try:
-            self.request_label.configure(text=f"请求总数: {request_counter}")
-            self.error_label.configure(text=f"错误总数: {error_counter}")
+            self.request_label.configure(text=_("lbl_requests", n=request_counter))
+            self.error_label.configure(text=_("lbl_errors", n=error_counter))
             if self.network_down.is_set():
-                self.net_label.configure(text="网络状态: 断联恢复中…", bootstyle="danger")
+                self.net_label.configure(text=_("net_down"), bootstyle="danger")
             else:
-                self.net_label.configure(text="网络状态: 正常", bootstyle="success")
+                self.net_label.configure(text=_("net_ok"), bootstyle="success")
             if not stop_event.is_set():
                 self.root.after(1000, self.update_counters)
         except Exception:
@@ -1169,7 +1417,7 @@ class RealNetSimApp:
             if not 1 <= max_workers <= 20:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("错误", "并发线程数必须在 1-20 之间，使用默认值 16")
+            messagebox.showerror(_("err_title"), _("err_threads"))
             max_workers = 16
             self.threads_entry.delete(0, tk.END)
             self.threads_entry.insert(0, "16")
@@ -1232,12 +1480,69 @@ class RealNetSimApp:
         self.stop_button.configure(state="disabled")
 
     def on_closing(self):
-        if messagebox.askokcancel("退出", "确定要退出吗？"):
+        if messagebox.askokcancel(_("exit_title"), _("exit_confirm")):
             self.stop_test()
             self.root.destroy()
             sys.exit(0)
 
     # ---- 关于 / 欢迎窗口 / GitHub 更新通道 ----
+    def switch_language(self, code):
+        """切换界面语言并持久化到配置。"""
+        set_language(code)
+        cfg = self._load_config()
+        cfg['language'] = code
+        self._save_config(cfg)
+        self.refresh_language()
+
+    def refresh_language(self):
+        """重新应用当前语言到所有已打开的窗口与控件。"""
+        try:
+            # 菜单
+            self.menubar.entryconfig(0, label=_("menu_file"))
+            self.file_menu.entryconfig(0, label=_("menu_sites"))
+            self.file_menu.entryconfig(1, label=_("menu_export"))
+            self.file_menu.entryconfig(3, label=_("menu_check_update"))
+            self.file_menu.entryconfig(4, label=_("menu_about"))
+            self.file_menu.entryconfig(6, label=_("menu_exit"))
+            self.menubar.entryconfig(1, label=_("menu_language"))
+            # 主窗口控件
+            self.threads_label.configure(text=_("lbl_threads"))
+            self.interval_label.configure(text=_("lbl_interval"))
+            self.verify_check.configure(text=_("chk_verify"))
+            self.stream_prob_label.configure(text=_("lbl_stream_prob"))
+            self.stream_dur_label.configure(text=_("lbl_stream_dur"))
+            self.start_button.configure(text=_("btn_start"))
+            self.stop_button.configure(text=_("btn_stop"))
+            self.request_label.configure(text=_("lbl_requests", n=request_counter))
+            self.error_label.configure(text=_("lbl_errors", n=error_counter))
+            down = self.network_down.is_set()
+            self.net_label.configure(text=_("net_down") if down else _("net_ok"),
+                                     bootstyle="danger" if down else "success")
+            # 图表（下一次重绘自动取新语言；立即触发一次）
+            try:
+                self.update_chart()
+            except Exception:
+                pass
+            # 站点编辑器（若打开）
+            if getattr(self, 'editor_window', None) and self.editor_window.winfo_exists():
+                self.editor_window.title(_("editor_title"))
+                self.domain_listbox.heading("Site", text=_("col_site"))
+                self.domain_listbox.heading("Domain", text=_("col_domain"))
+                self.editor_btn_del.configure(text=_("btn_del_sel"))
+                self.editor_btn_all.configure(text=_("btn_select_all"))
+                self.editor_btn_desel.configure(text=_("btn_deselect"))
+                self.editor_btn_exp.configure(text=_("btn_export"))
+                self.editor_btn_ref.configure(text=_("btn_refresh"))
+                self.editor_btn_close.configure(text=_("btn_close"))
+                self.editor_site_lbl.configure(text=_("lbl_site_name"))
+                self.editor_dom_lbl.configure(text=_("lbl_domains"))
+                self.editor_btn_add.configure(text=_("btn_add"))
+            # 关于窗口（若打开）
+            if getattr(self, 'about_window', None) and self.about_window.winfo_exists():
+                self._apply_about_texts()
+        except Exception as e:
+            logger.error(f"刷新语言失败: {e}")
+
     def _load_config(self):
         try:
             with open('realsurf_config.json', 'r', encoding='utf-8') as f:
@@ -1263,56 +1568,69 @@ class RealNetSimApp:
         except Exception:
             pass
 
+    def _apply_about_texts(self):
+        try:
+            self.about_title_label.configure(text=APP_NAME)
+            self.about_ver_label.configure(text=_("about_ver", ver=APP_VERSION))
+            self.about_intro_label.configure(text=_("about_intro"))
+            self.about_repo_label.configure(text=_("about_repo_label"))
+            self.about_autoshow_chk.configure(text=_("about_autoshow"))
+            self.about_btn_check.configure(text=_("btn_check_update"))
+            self.about_btn_repo.configure(text=_("btn_open_repo"))
+            self.about_btn_close.configure(text=_("btn_close"))
+        except Exception:
+            pass
+
     def show_about(self, startup=False):
-        # 单例：避免重复打开多个窗口
+        # 单例：避免重复打开多个窗口；关闭后仍可通过菜单「关于」重新打开
         try:
             if getattr(self, 'about_window', None) and self.about_window.winfo_exists():
+                self._apply_about_texts()
                 self.about_window.lift()
                 self.about_window.focus_force()
                 return
         except Exception:
             pass
         win = Toplevel(self.root)
-        win.title(f"关于 {APP_NAME}")
+        win.title(_("about_title", name=APP_NAME))
         win.geometry("560x500")
         win.resizable(False, False)
         self.about_window = win
 
-        ttkb.Label(win, text=APP_NAME, font=("SimHei", 18, "bold")).pack(pady=(18, 2))
-        ttkb.Label(win, text=f"当前版本  v{APP_VERSION}", font=("SimHei", 11),
-                   bootstyle="secondary").pack()
+        self.about_title_label = ttkb.Label(win, text=APP_NAME, font=(UI_FONT, 18, "bold"))
+        self.about_title_label.pack(pady=(18, 2))
+        self.about_ver_label = ttkb.Label(win, text=_("about_ver", ver=APP_VERSION), font=(UI_FONT, 11),
+                   bootstyle="secondary")
+        self.about_ver_label.pack()
         ttkb.Separator(win).pack(fill="x", padx=24, pady=12)
 
-        intro = ("模拟真人上网行为：短请求浏览 + 长连接视频流，用于\n"
-                 "OpenClash / 代理链路连通性验证，以及 Smart 策略组\n"
-                 "训练数据采集。\n\n"
-                 "使用：设好并发数与访问间隔 → 走代理时勾选「跳过\n"
-                 "证书校验」→ 点「开始」。运行日志见程序同目录的\n"
-                 "access_log.txt。")
-        ttkb.Label(win, text=intro, font=("SimHei", 10), justify="left").pack(padx=26, anchor="w")
+        self.about_intro_label = ttkb.Label(win, text=_("about_intro"), font=(UI_FONT, 10), justify="left")
+        self.about_intro_label.pack(padx=26, anchor="w")
         ttkb.Separator(win).pack(fill="x", padx=24, pady=12)
 
         # 更新仓库链接（可点击）
         repo_url = f"https://github.com/{UPDATE_REPO}"
         row = ttkb.Frame(win)
         row.pack(fill="x", padx=26)
-        ttkb.Label(row, text="更新仓库：", font=("SimHei", 10)).pack(side="left")
-        link = ttkb.Label(row, text=repo_url, font=("SimHei", 10, "underline"),
+        self.about_repo_label = ttkb.Label(row, text=_("about_repo_label"), font=(UI_FONT, 10))
+        self.about_repo_label.pack(side="left")
+        link = ttkb.Label(row, text=repo_url, font=(UI_FONT, 10, "underline"),
                           bootstyle="info", cursor="hand2")
         link.pack(side="left")
         link.bind("<Button-1>", lambda e: webbrowser.open(repo_url))
 
         # 更新状态行（启动检查/手动检查都会刷新这里）
-        self.update_status_var = tk.StringVar(value="更新状态：正在检查…")
+        self.update_status_var = tk.StringVar(value=_("about_status_checking"))
         self.update_status_label = ttkb.Label(win, textvariable=self.update_status_var,
-                                              font=("SimHei", 10), bootstyle="secondary")
+                                              font=(UI_FONT, 10), bootstyle="secondary")
         self.update_status_label.pack(padx=26, pady=(10, 2), anchor="w")
 
         # 是否下次启动仍自动显示
         cfg = self._load_config()
         show_var = tk.BooleanVar(value=bool(cfg.get('show_welcome', True)))
-        ttkb.Checkbutton(win, text="启动时自动显示本窗口", variable=show_var,
-                         bootstyle="round-toggle").pack(padx=26, pady=(6, 0), anchor="w")
+        self.about_autoshow_chk = ttkb.Checkbutton(win, text=_("about_autoshow"), variable=show_var,
+                         bootstyle="round-toggle")
+        self.about_autoshow_chk.pack(padx=26, pady=(6, 0), anchor="w")
 
         def _close_about():
             cfg2 = self._load_config()
@@ -1322,12 +1640,15 @@ class RealNetSimApp:
 
         btns = ttkb.Frame(win)
         btns.pack(pady=14)
-        ttkb.Button(btns, text="检查更新", bootstyle=INFO,
-                    command=self.check_update_ui).pack(side="left", padx=6)
-        ttkb.Button(btns, text="打开仓库", bootstyle=OUTLINE,
-                    command=lambda: webbrowser.open(repo_url)).pack(side="left", padx=6)
-        ttkb.Button(btns, text="关闭", bootstyle=SECONDARY,
-                    command=_close_about).pack(side="left", padx=6)
+        self.about_btn_check = ttkb.Button(btns, text=_("btn_check_update"), bootstyle=INFO,
+                    command=self.check_update_ui)
+        self.about_btn_check.pack(side="left", padx=6)
+        self.about_btn_repo = ttkb.Button(btns, text=_("btn_open_repo"), bootstyle=OUTLINE,
+                    command=lambda: webbrowser.open(repo_url))
+        self.about_btn_repo.pack(side="left", padx=6)
+        self.about_btn_close = ttkb.Button(btns, text=_("btn_close"), bootstyle=SECONDARY,
+                    command=_close_about)
+        self.about_btn_close.pack(side="left", padx=6)
         win.protocol("WM_DELETE_WINDOW", _close_about)
 
         # 打开即静默检查一次：结果只刷新状态行，绝不弹原始错误框
@@ -1370,14 +1691,14 @@ class RealNetSimApp:
             hdr = {'Accept': 'application/vnd.github+json', 'User-Agent': APP_UA}
             resp = requests.get(url, headers=hdr, timeout=15)
             if resp.status_code == 404:
-                self._set_update_status("更新状态：仓库尚未发布版本", 'warning')
+                self._set_update_status(_("upd_no_release"), 'warning')
                 if manual:
-                    messagebox.showinfo("检查更新", "还没发布任何版本，暂时无需更新。")
+                    messagebox.showinfo(_("menu_check_update"), _("upd_no_release_msg"))
                 return
             if resp.status_code == 403:
-                self._set_update_status("更新状态：请求过于频繁，请稍后再试", 'warning')
+                self._set_update_status(_("upd_rate_limit"), 'warning')
                 if manual:
-                    messagebox.showwarning("检查更新", "GitHub 请求过于频繁，请过几分钟再试。")
+                    messagebox.showwarning(_("menu_check_update"), _("upd_rate_limit_msg"))
                 return
             resp.raise_for_status()
             rel = resp.json()
@@ -1386,21 +1707,20 @@ class RealNetSimApp:
             local_ver = self._version_tuple(APP_VERSION)
             notes = rel.get('body', '') or ''
             if remote_ver <= local_ver:
-                self._set_update_status(f"更新状态：已是最新版本（v{APP_VERSION}）", 'success')
+                self._set_update_status(_("upd_latest", ver=APP_VERSION), 'success')
                 if manual:
-                    messagebox.showinfo("检查更新", f"已是最新版本 v{APP_VERSION}，无需更新。")
+                    messagebox.showinfo(_("menu_check_update"), _("upd_latest_msg", ver=APP_VERSION))
                 return
             # 发现新版本
-            self._set_update_status(f"更新状态：发现新版本 {tag}，可点「检查更新」升级", 'info')
+            self._set_update_status(_("upd_found_status", tag=tag), 'info')
             asset_url = None
             for a in rel.get('assets', []):
                 if a.get('name', '').lower().endswith('.exe'):
                     asset_url = a.get('browser_download_url')
                     break
             if manual:
-                info = (f"发现新版本 {tag}（当前 v{APP_VERSION}）\n\n"
-                        f"{notes[:600]}\n\n是否下载并自动替换？")
-                if asset_url and messagebox.askyesno("发现新版本", info):
+                info = _("upd_found_msg", tag=tag, ver=APP_VERSION, notes=notes[:600])
+                if asset_url and messagebox.askyesno(_("menu_check_update"), info):
                     self._apply_update(asset_url, tag)
                 elif not asset_url:
                     webbrowser.open(rel.get('html_url',
@@ -1411,21 +1731,21 @@ class RealNetSimApp:
                     # 无窗口时用主线程弹一次轻提示（非阻塞后台线程）
                     try:
                         self.root.after(0, lambda: messagebox.showinfo(
-                            "发现新版本",
-                            f"发现新版本 {tag}（当前 v{APP_VERSION}）。\n请用菜单「文件 → 检查更新」升级。"))
+                            _("menu_check_update"),
+                            _("upd_found_quiet", tag=tag, ver=APP_VERSION)))
                     except Exception:
                         pass
         except requests.exceptions.RequestException:
             # 网络类失败：只记日志 + 刷新状态行，绝不把原始异常抛给用户
-            self._set_update_status("更新状态：无法连接更新服务器（请检查网络/代理）", 'warning')
+            self._set_update_status(_("upd_conn_fail"), 'warning')
             logger.warning("检查更新失败：无法连接 GitHub（网络或代理问题）")
             if manual:
-                messagebox.showwarning("检查更新", "无法连接更新服务器。\n请检查网络或代理设置后再试。")
+                messagebox.showwarning(_("menu_check_update"), _("upd_conn_fail_msg"))
         except Exception as e:
-            self._set_update_status("更新状态：检查更新失败", 'warning')
+            self._set_update_status(_("upd_fail_status"), 'warning')
             logger.error(f"检查更新异常: {e}")
             if manual:
-                messagebox.showerror("检查更新", "检查更新时出现问题，请稍后再试。")
+                messagebox.showerror(_("menu_check_update"), _("upd_fail_msg"))
 
     def _apply_update(self, asset_url, new_version):
         import tempfile, os, sys, subprocess
@@ -1455,8 +1775,8 @@ class RealNetSimApp:
         except Exception as e:
             logger.error(f"更新失败: {e}")
             webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
-            messagebox.showerror("更新失败",
-                "自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf.exe 覆盖即可。")
+            messagebox.showerror(_("upd_apply_fail_title"),
+                _("upd_apply_fail_msg"))
 
 
 def main():

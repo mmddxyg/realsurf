@@ -1,8 +1,12 @@
 # 运行/构建产物
 access_log.txt
+realsurf_config.json
+sites_export.json
 *.log
 build/
+build2/
 dist/
+dist2/
 __pycache__/
 *.pyc
 .venv/
