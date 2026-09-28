@@ -21,6 +21,9 @@ realnet_venv314/
 gui_update_shot.png
 _trash_*/
 
+# PyInstaller 自动生成的 spec（含本机绝对路径，不入库）
+*.spec
+
 # 临时草稿（下划线开头，用完即删）
 _*.py
 _*.md
