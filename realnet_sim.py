@@ -52,6 +52,19 @@ import webbrowser
 import csv
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
+from datetime import datetime, timezone
+
+# D1：可选 HTTP/2 + HTTP/3 通道（装不上就自动回退 requests，不影响任何功能）
+try:
+    import httpx
+    _HAS_HTTPX = True
+except ImportError:
+    httpx = None
+    _HAS_HTTPX = False
+
+# 统一可捕获的请求异常：httpx 异常不是 requests 异常的子类，
+# 走 httpx 通道时必须一并捕获，否则错误会冒泡成 "worker 异常"。
+_REQUEST_ERRORS = ((requests.exceptions.RequestException,) + ((httpx.HTTPError,) if _HAS_HTTPX else ()))
 
 # urllib3 的 DNS 解析失败异常类（requests 本身没有 NameResolutionError，
 # 实际以 ConnectionError 形态出现，__cause__ 指向 urllib3 的该类）
@@ -124,6 +137,7 @@ I18N = {
         'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}', 'about_lang_label': '界面语言:',
         'lbl_threads': '最大并发线程 (1-20):', 'lbl_interval': '访问间隔 (秒, 5-30):',
         'chk_verify': '跳过证书校验(代理环境)', 'chk_csv': '记录连接明细(CSV)', 'lbl_stream_prob': '长连接比例(0-50):',
+        'chk_cachebust': '穿透缓存(?num=)',
         'lbl_stream_dur': '单次观看(秒,20-120):', 'btn_start': '开始', 'btn_stop': '停止',
         'lbl_requests': '请求总数: {n}', 'lbl_errors': '错误总数: {n}',
         'net_ok': '网络状态: 正常', 'net_down': '网络状态: 断联恢复中…',
@@ -147,9 +161,9 @@ I18N = {
         'exit_title': '退出', 'exit_confirm': '确定要退出吗？',
         'chart_title': '各站点实时网速与状态', 'chart_title_idle': '各站点实时网速与状态（暂无活动）',
         'chart_ylabel': '网速 (KB/s)',
-        'about_intro': '模拟真人上网行为：短请求浏览 + 长连接视频流，用于\n'
-                       'OpenClash / 代理链路连通性验证、Smart 策略组训练数据\n'
-                       '采集，以及 AdGuardHome(ADG) DNS 缓存预热与命中测试。\n\n'
+        'about_intro': '模拟真人上网行为：短请求浏览 + 长连接视频流 + 上传/大文件下载\n'
+                       '+ 小包高频交互，用于 OpenClash / 代理链路连通性验证、Smart 策略组\n'
+                       '训练数据采集，以及 AdGuardHome(ADG) DNS 缓存预热与命中测试。\n\n'
                        '使用：设好并发数与访问间隔 → 走代理时勾选「跳过\n'
                        '证书校验」→ 点「开始」。运行日志见程序同目录的\n'
                        'access_log.txt。',
@@ -170,7 +184,7 @@ I18N = {
         'upd_fail_status': '更新状态：检查更新失败',
         'upd_fail_msg': '检查更新时出现问题，请稍后再试。',
         'upd_apply_fail_title': '更新失败',
-        'upd_apply_fail_msg': '自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf.exe 覆盖即可。',
+        'upd_apply_fail_msg': '自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf<版本号>.exe 覆盖即可。',
         'upd_downloading': '正在下载更新 {ver}…',
         'upd_canceled': '已取消更新',
         'upd_restart': '下载完成，即将重启以完成更新…',
@@ -184,6 +198,7 @@ I18N = {
         'about_title': 'About {name}', 'about_ver': 'Version  v{ver}', 'about_lang_label': 'Interface language:',
         'lbl_threads': 'Max Threads (1-20):', 'lbl_interval': 'Visit Interval (s, 5-30):',
         'chk_verify': 'Skip Cert Verify (proxy)', 'chk_csv': 'Log connections (CSV)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
+        'chk_cachebust': 'Bust cache (?num=)',
         'lbl_stream_dur': 'Watch Duration (s, 20-120):', 'btn_start': 'Start', 'btn_stop': 'Stop',
         'lbl_requests': 'Total Requests: {n}', 'lbl_errors': 'Total Errors: {n}',
         'net_ok': 'Network: OK', 'net_down': 'Network: Reconnecting…',
@@ -207,7 +222,8 @@ I18N = {
         'exit_title': 'Exit', 'exit_confirm': 'Exit the application?',
         'chart_title': 'Real-time Speed & Status per Site', 'chart_title_idle': 'Real-time Speed & Status (no activity yet)',
         'chart_ylabel': 'Speed (KB/s)',
-        'about_intro': 'Simulates realistic human browsing: short requests + long video streams.\n'
+        'about_intro': 'Simulates realistic human traffic: short browsing + long video streams\n'
+                       '+ uploads / bulk downloads + high-frequency small packets.\n'
                        'For OpenClash / proxy link checks, Smart group training data\n'
                        'collection, and AdGuardHome (ADG) DNS cache warm-up / hit tests.\n\n'
                        'Usage: set threads & interval → check "Skip Cert Verify" when behind a\n'
@@ -229,7 +245,7 @@ I18N = {
         'upd_fail_status': 'Update: check failed',
         'upd_fail_msg': 'Problem during update check; retry later.',
         'upd_apply_fail_title': 'Update Failed',
-        'upd_apply_fail_msg': 'Auto-update incomplete; release page opened.\nDownload latest realsurf.exe manually.',
+        'upd_apply_fail_msg': 'Auto-update incomplete; release page opened.\nDownload the latest realsurf<ver>.exe manually.',
         'upd_downloading': 'Downloading update {ver}…',
         'upd_canceled': 'Update canceled',
         'upd_restart': 'Download complete; restarting to finish update…',
@@ -243,6 +259,7 @@ I18N = {
         'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}', 'about_lang_label': 'Ngôn ngữ giao diện:',
         'lbl_threads': 'Số luồng tối đa (1-20):', 'lbl_interval': 'Khoảng cách truy cập (giây, 5-30):',
         'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'chk_csv': 'Ghi kết nối (CSV)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
+        'chk_cachebust': 'Phá cache (?num=)',
         'lbl_stream_dur': 'Thời gian xem (giây, 20-120):', 'btn_start': 'Bắt đầu', 'btn_stop': 'Dừng',
         'lbl_requests': 'Tổng yêu cầu: {n}', 'lbl_errors': 'Tổng lỗi: {n}',
         'net_ok': 'Mạng: Bình thường', 'net_down': 'Mạng: Đang kết nối lại…',
@@ -288,7 +305,7 @@ I18N = {
         'upd_fail_status': 'Cập nhật: kiểm tra thất bại',
         'upd_fail_msg': 'Lỗi khi kiểm tra cập nhật; thử lại sau.',
         'upd_apply_fail_title': 'Cập nhật thất bại',
-        'upd_apply_fail_msg': 'Tự cập nhật chưa xong; đã mở trang phát hành.\nTải realsurf.exe mới nhất thủ công.',
+        'upd_apply_fail_msg': 'Tự cập nhật chưa xong; đã mở trang phát hành.\nTải realsurf<phiên bản>.exe mới nhất thủ công.',
         'upd_downloading': 'Đang tải cập nhật {ver}…',
         'upd_canceled': 'Đã hủy cập nhật',
         'upd_restart': 'Tải xong; sắp khởi động lại để hoàn tất…',
@@ -775,18 +792,119 @@ STREAM_SITES = [
      'mp4': True},
 ]
 
+# E2：DASH/HLS 形态的视频源（真实分片清单）。命中后按 manifest 拉 .ts/.m4s 分片，
+# 变长 + 并行 2~4 路，模拟自适应码率的真实长连接形态（比单文件 Range 更接近流媒体）。
+STREAM_M3U8 = [
+    "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+    "https://test-streams.mux.dev/pts_shift/master.m3u8",
+    "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
+]
+HLS_PROB = 0.5                 # 视频任务里走 HLS/DASH 分片的概率
+
 # 品牌热度权重（幂律近似）：投喂器按权重抽样，头部站更频繁，避免"均匀访问 54 个品牌"
-# 带来的训练样本偏置。未列出的品牌权重为 1。
+# 带来的训练样本偏置。A1-1：档位从 6/5/4/3/2/1 拉开到 1000/300/100/30，
+# 让头尾比达到 ~100:1（原 6:1 太扁，幂律形态不足）。
+# 注：任务书原表遗漏了 WEBSITES 里的游戏商店/资讯类品牌，此处补齐到对应档位，
+# 并把 _feeder 的兜底权重从 1 提到 30，避免未列品牌被头部品牌按 1000:1 直接饿死。
 BRAND_WEIGHT = {
-    "Google": 6, "YouTube": 6, "Netflix": 5, "Amazon": 5, "Facebook": 5,
-    "Instagram": 4, "TikTok": 5, "Microsoft": 4, "Apple": 4, "Reddit": 4,
-    "X": 4, "Wikipedia": 4, "Bilibili": 4, "Baidu": 4, "Zhihu": 3,
-    "Weibo": 3, "Twitch": 3, "Discord": 3, "GitHub": 3, "Spotify": 3,
-    "DisneyPlus": 2, "PrimeVideo": 2, "HBOMax": 2, "iQIYI": 2, "Youku": 2,
-    "WeTV": 2, "Pinterest": 2, "LinkedIn": 2, "Telegram": 2, "Dropbox": 2,
-    "Cloudflare": 2, "Quora": 1, "StackOverflow": 2, "Medium": 2, "Vimeo": 2,
-    "Dailymotion": 1, "SoundCloud": 1, "BBC": 2, "CNN": 2, "eBay": 2,
+    # 头部（1000/900/800）
+    "Google": 1000, "YouTube": 1000, "Facebook": 900, "Microsoft": 800, "Amazon": 800,
+    # 次头部（300）
+    "Apple": 300, "Instagram": 300, "TikTok": 300, "Wikipedia": 300, "X": 300,
+    "WhatsApp": 300, "Netflix": 300, "Reddit": 300, "Baidu": 300, "Bilibili": 300,
+    # 中段（100）
+    "Twitch": 100, "Discord": 100, "GitHub": 100, "Spotify": 100, "Zhihu": 100,
+    "Weibo": 100, "LinkedIn": 100, "Pinterest": 100, "Telegram": 100, "Cloudflare": 100,
+    "StackOverflow": 100, "Medium": 100, "eBay": 100, "BBC": 100, "CNN": 100,
+    # 中段·游戏/社区商店（任务书原表未列，补齐，避免被饿死）
+    "Toutiao": 100, "Xbox": 100, "PlayStation": 100, "Nintendo": 100,
+    "EA": 100, "EpicGames": 100, "Ubisoft": 100,
+    # 尾部（30）
+    "DisneyPlus": 30, "PrimeVideo": 30, "HBOMax": 30, "iQIYI": 30, "Youku": 30,
+    "WeTV": 30, "Dropbox": 30, "Vimeo": 30, "Hulu": 30, "RockstarGames": 30,
+    "NexusMods": 30, "HumbleBundle": 30, "Itch": 30, "GOG": 30, "TGC": 30,
+    "Quora": 10, "Dailymotion": 10, "SoundCloud": 10,
 }
+BRAND_WEIGHT_DEFAULT = 30      # 未列品牌兜底权重（原为 1，会让未列品牌被饿死）
+
+
+def _app_dir():
+    """程序所在目录：PyInstaller onefile 下 __file__ 在 _MEI 临时目录，必须用 exe 目录。"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# ---- A1-3（可选）真实榜单：Tranco / Cisco Umbrella top-1M 导出为 top1m.csv ----
+# 文件格式：每行 "rank,host"。默认关闭；置 USE_TOP_LIST = True 且文件存在时，
+# 用榜单完全替代硬编码 WEBSITES（权重 w ∝ rank^-0.8）。
+USE_TOP_LIST = False
+TOP_LIST_CAP = 100000
+TOP_LIST_PATH = os.path.join(_app_dir(), 'top1m.csv')
+RANK_WEIGHT = {}               # url -> 榜单权重（幂律），供 _host_weight 使用
+
+
+def _load_top_list(path=TOP_LIST_PATH, cap=TOP_LIST_CAP):
+    """读取 top-1M 榜单，返回 {'TOP': [url, ...]}；文件不存在则返回 {}。"""
+    sites = {}
+    if not os.path.exists(path):
+        return sites
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line[0] == '#':
+                    continue
+                parts = line.split(',')
+                if len(parts) < 2:
+                    continue
+                try:
+                    rank = int(parts[0])
+                except ValueError:
+                    continue
+                if rank > cap or rank < 1:
+                    continue
+                host = parts[1].strip()
+                if not host:
+                    continue
+                url = f'https://{host}'
+                sites.setdefault('TOP', []).append(url)
+                RANK_WEIGHT[url] = rank ** -0.8
+    except Exception as e:
+        logger.warning(f"读取榜单失败 {path}: {e}")
+        return {}
+    # 权重归一化到与 BRAND_WEIGHT 同量级（头部 ~1000）
+    if RANK_WEIGHT:
+        top = max(RANK_WEIGHT.values())
+        if top > 0:
+            for k in RANK_WEIGHT:
+                RANK_WEIGHT[k] = max(1, int(RANK_WEIGHT[k] / top * 1000))
+    return sites
+
+
+def _host_weight(url):
+    """A1-2：按子域角色给权重 —— www/api 重，静态/支持页轻。"""
+    rw = RANK_WEIGHT.get(url)
+    if rw:
+        return rw
+    try:
+        host = urlparse(url).netloc.lower()
+    except Exception:
+        return 3
+    if host.startswith('www.') or host.startswith('api') or host.count('.') == 1:
+        return 10
+    if any(k in host for k in ('static', 'cdn', 'img', 'asset', 'support', 'about',
+                               'help', 'investor', 'careers', 'legal', 'blog')):
+        return 1
+    return 3
+
+
+if USE_TOP_LIST:
+    _top = _load_top_list()
+    if _top:
+        WEBSITES = _top                       # 有榜单则完全替代硬编码表
+        logger.info(f"已加载真实榜单 top1m.csv：{len(_top.get('TOP', []))} 个域名")
+
 
 # ---------------------------------------------------------------------------
 # 全局状态
@@ -808,17 +926,31 @@ MAX_WORKERS = 8                # 并发 worker 默认上限，降低对旁路由
 MAX_BODY_BYTES = 256 * 1024    # 单次请求最多读取的响应体字节（流式），避免整页解压耗 CPU/内存
 MAX_STREAM_BYTES = 50 * 1024 * 1024   # 单次"观看"最多拉取的字节，避免对测试视频 CDN 打流过猛
 STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI 可调
+MAX_BULK_BYTES = 200 * 1024 * 1024    # C2：单次大文件持续下载上限
+UPLOAD_PROB = 0.20             # C1：上传场景占 visit_one 的比例
+BULK_DL_PROB = 0.05            # C2：大文件下载场景占比
+INTERACTIVE_PROB = 0.12        # C3：小包高频交互场景占比
+HTTPX_PROB = 0.70              # D1：走 httpx(h2/h3) 的概率，其余走 requests(h1.1)
+CACHE_BUST = False             # E1：True 时才加 ?num= 强制穿透缓存（默认关，避免打穿 ADG 缓存）
 
 # ---------------------------------------------------------------------------
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.0"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
 UPDATE_REPO = "mmddxyg/realsurf"
 GITHUB_API = "https://api.github.com"
+
+# 启动自检：把运行环境写进 access_log.txt，方便现场排查
+# （尤其确认打包后的 exe 里 httpx 到底有没有生效、h2/h3 通道是否可用）
+logger.info(
+    f"=== {APP_NAME} v{APP_VERSION} 启动 | Python {sys.version.split()[0]} | "
+    f"frozen={getattr(sys, 'frozen', False)} | "
+    f"httpx={'可用（h2/h3 通道启用）' if _HAS_HTTPX else '不可用（全部走 requests h1.1）'} | "
+    f"缓存穿透={'开' if CACHE_BUST else '关'} | 品牌数={len(WEBSITES)}")
 
 
 # ---------------------------------------------------------------------------
@@ -907,6 +1039,8 @@ class RealNetSimApp:
         # UI 变量
         self.verify_var = tk.BooleanVar(value=True)          # 默认开启证书校验
         self.csv_var = tk.BooleanVar(value=True)             # 默认记录连接明细 CSV
+        self.cachebust_var = tk.BooleanVar(value=CACHE_BUST)  # E1：默认关，勾选才加 ?num= 穿透缓存
+        self.hx = None                                       # D1：httpx 通道（start_test 里创建）
         self.conn_lock = threading.Lock()                    # 保护 CSV 写入
         self.network_down = threading.Event()
 
@@ -1010,17 +1144,20 @@ class RealNetSimApp:
             variable=self.verify_var, bootstyle="round-toggle")
         self.verify_check.grid(row=0, column=4, padx=10)
 
+        # 布局修复：原来 9 个控件全挤在一行，默认 1000px 窗口下「长连接比例」
+        # 和「单次观看」会被右边缘裁掉（参数改不了 = 功能不可用）。拆成两行。
         self.stream_prob_label = ttkb.Label(input_frame, text=_("lbl_stream_prob"), font=(UI_FONT, 12))
-        self.stream_prob_label.grid(row=0, column=5, padx=5)
+        self.stream_prob_label.grid(row=1, column=0, padx=5, pady=(6, 0), sticky="w")
         self.stream_prob_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.stream_prob_entry.insert(0, "20")
-        self.stream_prob_entry.grid(row=0, column=6, padx=5)
+        self.stream_prob_entry.grid(row=1, column=1, padx=5, pady=(6, 0))
 
         self.stream_dur_label = ttkb.Label(input_frame, text=_("lbl_stream_dur"), font=(UI_FONT, 12))
-        self.stream_dur_label.grid(row=0, column=7, padx=5)
+        self.stream_dur_label.grid(row=1, column=2, padx=5, pady=(6, 0), sticky="w")
         self.stream_dur_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
         self.stream_dur_entry.insert(0, "45")
-        self.stream_dur_entry.grid(row=0, column=8, padx=5)
+        self.stream_dur_entry.grid(row=1, column=3, padx=5, pady=(6, 0))
+
 
         # 按钮框架
         button_frame = ttkb.Frame(main_frame, padding="10")
@@ -1036,6 +1173,13 @@ class RealNetSimApp:
             button_frame, text=_("chk_csv"),
             variable=self.csv_var, bootstyle="round-toggle")
         self.csv_check.grid(row=0, column=2, padx=10)
+
+        # E1：缓存穿透开关（默认关，避免打穿 ADG 缓存）
+        self.cachebust_check = ttkb.Checkbutton(
+            button_frame, text=_("chk_cachebust"),
+            variable=self.cachebust_var, bootstyle="round-toggle")
+        self.cachebust_check.grid(row=0, column=3, padx=10)
+
 
         # 状态框架
         status_frame = ttkb.Frame(main_frame, padding="10")
@@ -1316,14 +1460,24 @@ class RealNetSimApp:
                 domain_fail_count[url] = domain_fail_count.get(url, 0) + 1
 
     # ---- 连接明细 CSV（P2：可离线审计样本分布 / ADG 缓存验证） ----
+    CONN_LOG_MAX = 32 * 1024 * 1024     # S1：32MB 分卷，超过则新开带时间戳的文件
+
     def _open_conn_log(self):
         try:
             if getattr(self, 'csv_var', None) and self.csv_var.get():
-                new_file = (not os.path.exists('conn_log.csv')) or os.path.getsize('conn_log.csv') == 0
-                self.conn_file = open('conn_log.csv', 'a', newline='', encoding='utf-8')
+                path = 'conn_log.csv'
+                # S1：轮转 —— 超过上限就换名新开，避免单文件无限膨胀
+                if os.path.exists(path) and os.path.getsize(path) > self.CONN_LOG_MAX:
+                    path = 'conn_log_%s.csv' % time.strftime('%Y%m%d-%H%M%S')
+                    logger.info(f"连接明细已达 {self.CONN_LOG_MAX // 1024 // 1024}MB，轮转为 {path}")
+                new_file = (not os.path.exists(path)) or os.path.getsize(path) == 0
+                self.conn_file = open(path, 'a', newline='', encoding='utf-8')
+                self.conn_log_path = path
                 if new_file:
                     csv.writer(self.conn_file).writerow(
-                        ['ts', 'site', 'host', 'url', 'status', 'bytes', 'ms', 'ok'])
+                        ['ts', 'site', 'host', 'url', 'method', 'status', 'ok', 'ok_2xx',
+                         'ok_3xx', 'bytes_down', 'bytes_up', 'total_ms', 'proto_ver',
+                         'scene_hint', 'tier'])
                 self.conn_file.flush()
             else:
                 self.conn_file = None
@@ -1331,49 +1485,354 @@ class RealNetSimApp:
             logger.warning(f"打开连接明细 CSV 失败: {e}")
             self.conn_file = None
 
-    def _record_conn(self, site, url, status, size, duration, ok):
+    @staticmethod
+    def _status_code(status):
+        """从 status 里取 HTTP 状态码：既支持 int，也支持 'OK (200)' / 'Error (503)'。
+
+        注意别用宽松的 \\d{3} ——'HLS 123MB' 这种会被误判成状态码 123。
+        """
+        if isinstance(status, int):
+            return status
+        s = str(status).strip()
+        if s.isdigit():
+            return int(s)
+        m = re.search(r'\((\d{3})\)', s)
+        return int(m.group(1)) if m else 0
+
+    def _record_conn(self, site, url, status, size, duration, ok,
+                     method='GET', bytes_up=0, proto_ver='', scene_hint='', tier=''):
+        """S4：记录扩展字段。scene_hint ∈ web/interactive/streaming/transfer；
+        注意 group_name / node_name 客户端拿不到，本表仅供本地核对样本分布。"""
         cf = getattr(self, 'conn_file', None)
         if cf is None:
             return
         try:
             host = urlparse(url).netloc
+            code = self._status_code(status)
             with self.conn_lock:
                 csv.writer(cf).writerow([
-                    time.strftime('%Y-%m-%d %H:%M:%S'), site, host, url,
-                    status, int(size), int(duration * 1000), int(bool(ok))])
+                    # S3：UTC ISO8601（带 Z），跨时区/跨设备对齐用
+                    datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+                    site, host, url, method,
+                    # status 列统一成数字状态码（解析不到才落回原字符串），
+                    # 否则 'OK (200)' 这种文本会让 ok_2xx/ok_3xx 全变 0
+                    code if code else status,
+                    int(bool(ok)),
+                    # S2：ok 收窄为 2xx/3xx 后，再用 ok_2xx / ok_3xx 保留细分
+                    int(200 <= code < 300),
+                    int(300 <= code < 400),
+                    int(size), int(bytes_up), int(duration * 1000),
+                    proto_ver, scene_hint, tier])
                 cf.flush()
         except Exception:
             pass
 
+
+
+    # ---- D1：统一请求层（httpx http2/h3 ↔ requests h1.1，接口归一） ----
+    @staticmethod
+    def _is_hx(resp):
+        """判断响应是否来自 httpx（httpx 用 iter_bytes，requests 用 iter_content）。"""
+        return _HAS_HTTPX and httpx is not None and isinstance(resp, httpx.Response)
+
+    def _iter_chunks(self, resp, size=16384):
+        """统一分块读取：屏蔽 httpx/requests 的接口差异。"""
+        if self._is_hx(resp):
+            return resp.iter_bytes(size)
+        return resp.iter_content(size)
+
+    def _proto_of(self, resp):
+        """取协议版本（HTTP/1.1 / HTTP/2 / HTTP/3）写入 conn_log.proto_ver。"""
+        try:
+            if self._is_hx(resp):
+                v = getattr(resp, 'http_version', '') or ''
+                return f'HTTP/{v}' if v and not v.startswith('HTTP') else (v or 'HTTP/1.1')
+            return f"HTTP/{getattr(resp.raw, 'version', 11) // 10}.{getattr(resp.raw, 'version', 11) % 10}"
+        except Exception:
+            return ''
+
+    def _close_resp(self, resp):
+        try:
+            resp.close()
+        except Exception:
+            pass
+
+    def _get(self, url, session, headers=None, timeout=30):
+        """D1：按概率分流 —— httpx(h2/h3) 优先，其余 requests(h1.1)。
+        任何异常都自动回退 requests，保证功能不受影响。"""
+        h = headers if headers is not None else dict(random.choice(BROWSER_PROFILES))
+        hx = getattr(self, 'hx', None)
+        if hx is not None and random.random() < HTTPX_PROB:
+            try:
+                req = hx.build_request('GET', url, headers=h, timeout=timeout)
+                return hx.send(req, stream=True)
+            except Exception as e:
+                logger.debug(f"httpx GET 失败，回退 requests: {e}")
+        return session.get(url, headers=h, timeout=timeout,
+                           verify=self.params.get('verify', True), stream=True)
+
+    def _post(self, url, session, data=None, headers=None, timeout=30):
+        """D1：上传/表单用 POST，同样支持 httpx 分流与回退。"""
+        h = headers if headers is not None else dict(random.choice(BROWSER_PROFILES))
+        hx = getattr(self, 'hx', None)
+        if hx is not None and random.random() < HTTPX_PROB:
+            try:
+                req = hx.build_request('POST', url, content=data, headers=h, timeout=timeout)
+                return hx.send(req, stream=True)
+            except Exception as e:
+                logger.debug(f"httpx POST 失败，回退 requests: {e}")
+        return session.post(url, data=data, timeout=timeout, headers=h,
+                            verify=self.params.get('verify', True), stream=True)
+
+    # ---- C1：上传场景（表单 / 媒体 / 大文件三档） ----
+    def _upload(self, site_name, session):
+        """模拟上传：给 Smart 组补充上行侧样本。返回大致上行字节数。"""
+        global request_counter, error_counter
+        with sites_lock:
+            urls = list(WEBSITES.get(site_name, []))
+        if not urls:
+            return 0
+        target = random.choice(urls)
+        tier = random.choices(['form', 'media', 'bulk'], weights=[60, 30, 10], k=1)[0]
+        sent = 0
+        try:
+            if tier == 'form':
+                payload = os.urandom(random.randint(10 * 1024, 100 * 1024))
+                sent = len(payload)
+                r = self._post(target, session, data=payload, timeout=20)
+                self._close_resp(r)
+            elif tier == 'media':
+                payload = os.urandom(random.randint(1 * 1024 * 1024, 5 * 1024 * 1024))
+                sent = len(payload)
+                r = self._post(target, session, data=payload, timeout=40)
+                self._close_resp(r)
+            else:  # bulk：持续写，模拟网盘/云备份
+                total = min(random.randint(20, 100) * 1024 * 1024, MAX_BULK_BYTES)
+                chunk = 256 * 1024
+                state = {'n': 0}
+
+                def _gen():
+                    while state['n'] < total and not stop_event.is_set():
+                        n = min(chunk, total - state['n'])
+                        state['n'] += n
+                        yield os.urandom(n)
+                        time.sleep(random.uniform(0.02, 0.08))   # 限速，别打满上行
+
+                r = self._post(target, session, data=_gen(), timeout=120)
+                self._close_resp(r)
+                sent = state['n']
+            with counter_lock:
+                request_counter += 1
+        except _REQUEST_ERRORS:
+            with counter_lock:
+                error_counter += 1
+        except Exception as e:
+            logger.warning(f"上传场景异常 {site_name}: {e}")
+        return sent
+
+    # ---- C2：大文件持续下载（非视频：网盘 / 驱动 / 更新包） ----
+    def _bulk_download(self, site_name, session):
+        global request_counter, error_counter
+        with sites_lock:
+            urls = list(WEBSITES.get(site_name, []))
+        if not urls:
+            return
+        url = random.choice(urls)
+        target = min(random.randint(20, 100) * 1024 * 1024, MAX_BULK_BYTES)
+        total = 0
+        start_time = time.time()
+        proto = ''
+        try:
+            r = self._get(url, session, timeout=60)
+            try:
+                proto = self._proto_of(r)
+                for chunk in self._iter_chunks(r, 65536):
+                    total += len(chunk)
+                    if total >= target or stop_event.is_set():
+                        break
+            finally:
+                self._close_resp(r)
+            with counter_lock:
+                request_counter += 1
+            self._record_conn(site_name, url, getattr(r, 'status_code', 200),
+                              0, time.time() - start_time,
+                              200 <= getattr(r, 'status_code', 200) < 400,
+                              proto_ver=proto, scene_hint='transfer', tier='bulk')
+        except _REQUEST_ERRORS:
+            with counter_lock:
+                error_counter += 1
+
+    # ---- C3：交互场景（小包高频：IM / 游戏心跳 / 长轮询） ----
+    def _interactive(self, site_name, session, burst=8):
+        global request_counter
+        with sites_lock:
+            urls = list(WEBSITES.get(site_name, []))
+        if not urls:
+            return
+        target = random.choice(urls)
+        for _ in range(random.randint(3, burst)):
+            if stop_event.is_set() or self.network_down.is_set():
+                break
+            try:
+                r = self._get(target, session, timeout=8)
+                proto = self._proto_of(r)
+                try:
+                    for _c in self._iter_chunks(r, 512):
+                        break
+                finally:
+                    self._close_resp(r)
+                with counter_lock:
+                    request_counter += 1
+                self._record_conn(site_name, target, getattr(r, 'status_code', 200),
+                                  0, 0.0,
+                                  200 <= getattr(r, 'status_code', 200) < 400,
+                                  proto_ver=proto, scene_hint='interactive', tier='small')
+            except _REQUEST_ERRORS:
+                pass
+            time.sleep(random.uniform(0.2, 1.0))
+
+    # ---- E2：HLS/DASH 分片拉取（变长分片 + 并行 2~4 路，模拟码率自适应） ----
+    def _fetch_text(self, url, session, timeout=15):
+        """拉取清单文本，返回 (文本, HTTP状态码)；失败返回 (None, 0)。"""
+        try:
+            r = self._get(url, session, timeout=timeout)
+            try:
+                body = r.read() if self._is_hx(r) else r.content
+                code = getattr(r, 'status_code', 0)
+            finally:
+                self._close_resp(r)
+            with counter_lock:
+                global request_counter
+                request_counter += 1
+            return body.decode('utf-8', 'ignore'), code
+        except Exception:
+            return None, 0
+
+    @staticmethod
+    def _parse_m3u8(body, base):
+        """解析 m3u8，返回 (媒体分片, 子清单, 初始化段)。
+
+        注意：测试源给的都是**主清单**，里面列的是各清晰度的子清单
+        （条目本身还是 .m3u8），不是 .ts 分片。只按"非 # 行"当分片下，
+        实际只会下到几个几 KB 的文本文件（≈0 流量）—— 必须做两级解析。
+        """
+        def _abs(u):
+            return u if u.startswith('http') else base + u
+
+        maps, entries = [], []
+        for line in body.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('#EXT-X-MAP'):
+                m = re.search(r'URI="([^"]+)"', line)
+                if m:
+                    maps.append(_abs(m.group(1)))
+                continue
+            if line.startswith('#'):
+                continue
+            entries.append(_abs(line))
+        variants = [u for u in entries if '.m3u8' in u.split('?')[0].lower()]
+        media = [u for u in entries if u not in variants]
+        return media, variants, maps
+
+    def _stream_hls(self, m3u8_url, session, seconds, max_bytes):
+        """按 manifest 拉分片（支持 主清单 → 子清单 → 媒体分片 两级）。
+
+        返回 (累计字节数, 清单 HTTP 状态码)。
+        """
+        body, code = self._fetch_text(m3u8_url, session)
+        if not body:
+            return 0.0, code
+        base = m3u8_url.rsplit('/', 1)[0] + '/'
+        media, variants, maps = self._parse_m3u8(body, base)
+
+        if not media and variants:
+            # 主清单：随机挑一个清晰度子清单，再解析出真正的媒体分片
+            v = random.choice(variants)
+            vbody, vcode = self._fetch_text(v, session)
+            if vbody:
+                code = vcode or code
+                m2, _, map2 = self._parse_m3u8(vbody, v.rsplit('/', 1)[0] + '/')
+                if m2:
+                    media = m2
+                if map2:
+                    maps = map2 + maps
+        if not media:
+            return 0.0, code
+
+        # 真实播放器行为：先取初始化段（fMP4/DASH 的 moov），再顺序拉分片
+        total = [0.0]
+        deadline = time.time() + seconds
+
+        def _fetch(u):
+            if time.time() > deadline or total[0] >= max_bytes or stop_event.is_set():
+                return
+            try:
+                rr = self._get(u, session, timeout=20)
+                try:
+                    for c in self._iter_chunks(rr, 32768):
+                        total[0] += len(c)
+                        if total[0] >= max_bytes:
+                            break
+                finally:
+                    self._close_resp(rr)
+                with counter_lock:
+                    global request_counter
+                    request_counter += 1
+            except _REQUEST_ERRORS:
+                pass
+
+        # 初始化段（若清单里有 EXT-X-MAP）
+        if maps:
+            with ThreadPoolExecutor(max_workers=min(2, len(maps))) as ex:
+                list(ex.map(_fetch, maps[:2]))
+
+        # 变长分片 + 并行 2~4 路
+        while time.time() < deadline and total[0] < max_bytes and media:
+            if stop_event.is_set():
+                break
+            k = random.randint(2, 4)
+            batch = [media.pop(0) for _ in range(min(k, len(media)))]
+            with ThreadPoolExecutor(max_workers=k) as ex:
+                list(ex.map(_fetch, batch))
+            time.sleep(random.uniform(0.2, 1.2))
+        return total[0], code
+
+
     # ---- 页面簇发（P1：模拟真实页面加载多个兄弟子资源，还原簇发形态） ----
     def _page_burst(self, site_name, base_url, session):
-        """访问成功后并发拉取同品牌兄弟子域（模拟真实页面多资源加载）。
-        仅用已有站点 URL，不产生新的 DNS 目标；单资源上限 64KB。"""
-        global request_counter
+        """B1：真并发拉取同品牌兄弟子域（原实现是串行 + 0.3~1.2s 间隔，
+        形态上根本不是"簇发"）。单资源上限提到 512KB，更接近真实页面资源量。"""
         with sites_lock:
             sibs = [u for u in WEBSITES.get(site_name, []) if u != base_url]
         if not sibs:
             return
-        n = random.randint(2, 3)
-        for sub in random.sample(sibs, min(n, len(sibs))):
+        n = min(random.randint(6, 15), len(sibs))
+        targets = random.sample(sibs, n)
+
+        def _one(u):
             if stop_event.is_set() or self.network_down.is_set():
-                break
+                return
             try:
-                r = session.get(sub, timeout=15, verify=self.params['verify'],
-                                headers=dict(random.choice(BROWSER_PROFILES)), stream=True)
+                r = self._get(u, session, timeout=15)
                 try:
                     tot = 0
-                    for chunk in r.iter_content(16384):
+                    for chunk in self._iter_chunks(r, 16384):
                         tot += len(chunk)
-                        if tot >= 64 * 1024:
+                        if tot >= 512 * 1024:
                             break
                 finally:
-                    r.close()
+                    self._close_resp(r)
                 with counter_lock:
+                    global request_counter
                     request_counter += 1
-            except requests.exceptions.RequestException:
+            except _REQUEST_ERRORS:
                 pass
-            time.sleep(random.uniform(0.3, 1.2))
+
+        with ThreadPoolExecutor(max_workers=min(n, 8)) as ex:
+            list(ex.map(_one, targets))
+
 
     # ---- 单次访问（真实浏览器模拟，流式读取，限制体积） ----
     def visit_one(self, site_name, session):
@@ -1383,8 +1842,34 @@ class RealNetSimApp:
             urls = list(WEBSITES.get(site_name, []))
         if not urls:
             return
-        url = random.choice(urls)
-        req_url = f"{url}{'?num=' if '?' not in url else '&num='}{request_counter}"
+
+        # C1：上传场景（表单/媒体/大文件，整体 ~20%）
+        if random.random() < UPLOAD_PROB:
+            try:
+                self._upload(site_name, session)
+            except Exception as e:
+                logger.debug(f"上传场景异常: {e}")
+        # C2：大文件持续下载场景（~5%）
+        if random.random() < BULK_DL_PROB:
+            try:
+                self._bulk_download(site_name, session)
+            except Exception as e:
+                logger.debug(f"大文件下载异常: {e}")
+        # C3：小包高频交互场景（~12%）
+        if random.random() < INTERACTIVE_PROB:
+            try:
+                self._interactive(site_name, session)
+            except Exception as e:
+                logger.debug(f"交互场景异常: {e}")
+
+        # A1-2：按子域角色加权选 URL（www/api 重，静态/支持页轻）
+        url = random.choices(urls, weights=[_host_weight(u) for u in urls], k=1)[0]
+        # E1：?num= 缓存穿透改成开关，默认关闭（原实现每次都加，直接把 ADG 缓存打穿，
+        # 反而破坏了"预热缓存"这个初衷）
+        if CACHE_BUST:
+            req_url = f"{url}{'?num=' if '?' not in url else '&num='}{request_counter}"
+        else:
+            req_url = url
         profile = dict(random.choice(BROWSER_PROFILES))
         profile['Referer'] = url
         if random.random() < 0.3:
@@ -1393,35 +1878,39 @@ class RealNetSimApp:
         size = 0.0
         status = 'Idle'
         ok = False
+        response = None
+        proto = ''
         try:
             # 流式读取，最多 MAX_BODY_BYTES，避免整页解压占用大量 CPU/内存
-            response = session.get(req_url, timeout=30, verify=self.params['verify'],
-                                   headers=profile, stream=True)
+            response = self._get(req_url, session, headers=profile, timeout=30)
+            proto = self._proto_of(response)
             try:
-                for chunk in response.iter_content(16384):
+                for chunk in self._iter_chunks(response, 16384):
                     size += len(chunk)
                     if size >= MAX_BODY_BYTES:
                         break
             finally:
-                response.close()
+                self._close_resp(response)
             with counter_lock:
                 request_counter += 1
-            ok = True
-            # 页面簇发：访问成功后以一定概率并发拉取同品牌兄弟子域，模拟真实页面多资源加载
-            if random.random() < 0.4:
+            # S2：ok 语义收窄 —— 只有 2xx/3xx 才算成功。
+            # 原实现"没抛异常就 True"，把 403/404/500 也标成成功，样本标签是错的。
+            code = getattr(response, 'status_code', 0)
+            ok = 200 <= code < 400
+            # B1：页面簇发概率 0.4 → 0.9（真实页面几乎必然并发拉取子资源）
+            if random.random() < 0.9:
                 try:
                     self._page_burst(site_name, url, session)
                 except Exception as e:
                     logger.debug(f"page burst 异常: {e}")
             with sites_lock:
                 domain_fail_count.pop(url, None)   # 成功：清零该域名失败计数
-            if response.status_code == 429:
+            if code == 429:
                 logger.warning(f"触发 429 限流 {site_name}，额外等待 5 秒")
                 time.sleep(5)
                 status = "OK (429)"
             else:
-                status = f"OK ({response.status_code})" if response.status_code == 200 \
-                    else f"Error ({response.status_code})"
+                status = f"OK ({code})" if 200 <= code < 400 else f"Error ({code})"
         except requests.exceptions.SSLError as e:
             self._on_fail(site_name, url, f"SSL 错误 {site_name} ({req_url}): {e} - 跳过",
                           retry_sleep=1 if not self.params.get('verify', False) else 3,
@@ -1442,7 +1931,8 @@ class RealNetSimApp:
             else:
                 self._on_fail(site_name, url, f"连接错误 {site_name} ({req_url}): {e} - 等待恢复", retry_sleep=2)
                 status = 'ConnErr'
-        except requests.exceptions.RequestException as e:
+        except _REQUEST_ERRORS as e:
+            # 其余 requests 异常 + 全部 httpx(h2/h3) 异常走这里
             self._on_fail(site_name, url, f"其他请求错误 {site_name} ({req_url}): {e} - 跳过", retry_sleep=1)
             status = 'Error'
         finally:
@@ -1453,7 +1943,9 @@ class RealNetSimApp:
                                             'last_time': time.time(), 'size': size}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
-            self._record_conn(site_name, url, status, size, duration, ok)
+            self._record_conn(site_name, url, status, size, duration, ok,
+                              proto_ver=proto, scene_hint='web', tier='page')
+
 
     # ---- 长连接(视频流)会话：模拟真人看视频 ----
     def stream_session(self, session):
@@ -1471,9 +1963,20 @@ class RealNetSimApp:
         ok = False
         total = 0.0
         status = 'Idle'
+        proto = ''
+        code = 0          # 真实 HTTP 状态码（status 给 UI 看，code 给 conn_log 审计用）
         try:
             profile = dict(random.choice(BROWSER_PROFILES))
-            if is_mp4:
+            # E2：优先走 HLS/DASH 分片形态（真实流媒体就是 m3u8 + 一堆 .ts/.m4s 分片，
+            # 原来的"单 mp4 打 Range"形态太干净，骗不过 Smart 的特征工程）
+            if STREAM_M3U8 and random.random() < HLS_PROB:
+                hls_url = random.choice(STREAM_M3U8)
+                url = hls_url
+                total, code = self._stream_hls(hls_url, session, stream_seconds,
+                                               MAX_STREAM_BYTES)
+                ok = total > 0
+                status = f"HLS {int(total / 1024 / 1024)}MB" if total > 0 else 'StreamErr'
+            elif is_mp4:
                 # 像视频播放器一样：Range 分段顺序拉取，段间有缓冲间隙
                 profile['Sec-Fetch-Dest'] = 'video'
                 profile['Sec-Fetch-Mode'] = 'cors'
@@ -1490,19 +1993,20 @@ class RealNetSimApp:
                     req_headers = dict(profile)
                     req_headers['Range'] = f'bytes={pos}-{end}'
                     try:
-                        r = session.get(url, timeout=30, verify=self.params['verify'],
-                                        headers=req_headers, stream=True)
+                        r = self._get(url, session, headers=req_headers, timeout=30)
+                        proto = proto or self._proto_of(r)
                         try:
-                            for chunk in r.iter_content(16384):
+                            for chunk in self._iter_chunks(r, 16384):
                                 total += len(chunk)
                                 if total >= MAX_STREAM_BYTES:
                                     break
                         finally:
-                            r.close()
+                            self._close_resp(r)
                         with counter_lock:
                             request_counter += 1
-                        ok = True
-                    except requests.exceptions.RequestException as e:
+                        code = getattr(r, 'status_code', 0) or code
+                        ok = 200 <= getattr(r, 'status_code', 0) < 400 or ok
+                    except _REQUEST_ERRORS as e:
                         with counter_lock:
                             error_counter += 1
                         logger.error(f"长连接分段错误 {host}: {e}")
@@ -1516,19 +2020,20 @@ class RealNetSimApp:
                 # 视频平台：打开观看页 → 看一会儿（零星子资源请求）
                 profile['Sec-Fetch-Dest'] = 'document'
                 try:
-                    r = session.get(url, timeout=30, verify=self.params['verify'],
-                                    headers=profile, stream=True)
+                    r = self._get(url, session, headers=profile, timeout=30)
+                    proto = proto or self._proto_of(r)
                     try:
-                        for chunk in r.iter_content(16384):
+                        for chunk in self._iter_chunks(r, 16384):
                             total += len(chunk)
                             if total >= 512 * 1024:
                                 break
                     finally:
-                        r.close()
+                        self._close_resp(r)
                     with counter_lock:
                         request_counter += 1
-                    ok = True
-                except requests.exceptions.RequestException as e:
+                    code = getattr(r, 'status_code', 0)
+                    ok = 200 <= code < 400
+                except _REQUEST_ERRORS as e:
                     with counter_lock:
                         error_counter += 1
                     logger.error(f"长连接页面错误 {host}: {e}")
@@ -1539,21 +2044,23 @@ class RealNetSimApp:
                         break
                     if time.time() - start_time > stream_seconds:
                         break
-                    sub = random.choice(target.get('subs', []))
+                    subs = target.get('subs', [])
+                    if not subs:
+                        break
+                    sub = random.choice(subs)
                     try:
-                        sr = session.get(sub, timeout=20, verify=self.params['verify'],
-                                        headers=dict(random.choice(BROWSER_PROFILES)), stream=True)
+                        sr = self._get(sub, session, timeout=20)
                         try:
                             tot = 0
-                            for chunk in sr.iter_content(16384):
+                            for chunk in self._iter_chunks(sr, 16384):
                                 tot += len(chunk)
                                 if tot >= 256 * 1024:
                                     break
                         finally:
-                            sr.close()
+                            self._close_resp(sr)
                         with counter_lock:
                             request_counter += 1
-                    except requests.exceptions.RequestException:
+                    except _REQUEST_ERRORS:
                         pass
                     time.sleep(random.uniform(2.0, 6.0))
                 status = "WATCH"
@@ -1564,7 +2071,9 @@ class RealNetSimApp:
                                        'status': status, 'last_time': time.time(), 'size': total}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
-            self._record_conn(host, url, status, total, duration, ok)
+            self._record_conn(host, url, code if code else status, total, duration, ok,
+                              proto_ver=proto, scene_hint='streaming', tier='stream')
+
 
     # ---- worker 主循环：从队列取站点，访问后按间隔休息 ----
     def worker_loop(self, session):
@@ -1599,7 +2108,7 @@ class RealNetSimApp:
             pool = []
             for site in list(WEBSITES.keys()):
                 if WEBSITES.get(site):
-                    pool.extend([site] * BRAND_WEIGHT.get(site, 1))
+                    pool.extend([site] * BRAND_WEIGHT.get(site, BRAND_WEIGHT_DEFAULT))
             if not pool:
                 time.sleep(0.5)
                 continue
@@ -1647,6 +2156,10 @@ class RealNetSimApp:
         }
         self.p_maxq = max_workers * 2   # 背压上限用真实并发数，而非写死的常量
 
+        # E1：把 UI 勾选写入全局开关（worker 子线程只读）
+        global CACHE_BUST
+        CACHE_BUST = bool(self.cachebust_var.get())
+
         global request_counter, error_counter
         with counter_lock:
             request_counter = 0
@@ -1676,6 +2189,26 @@ class RealNetSimApp:
                               pool_maxsize=max_workers + 4)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
+
+        # D1：HTTP/2 + HTTP/3 通道（可选）。httpx 缺失 / 构造失败 / 请求失败都自动回退
+        # requests，因此不会影响任何既有功能。
+        self.hx = None
+        if _HAS_HTTPX:
+            verify_opt = bool(self.params['verify'])
+            for kwargs in ({'http1': True, 'http2': True, 'http3': True},
+                           {'http1': True, 'http2': True}):
+                try:
+                    self.hx = httpx.Client(
+                        timeout=30.0, verify=verify_opt, follow_redirects=True,
+                        limits=httpx.Limits(max_connections=max_workers + 8,
+                                            max_keepalive_connections=max_workers + 4),
+                        **kwargs)
+                    logger.info(f"httpx 通道已启用: {kwargs}")
+                    break
+                except Exception as e:
+                    logger.warning(f"httpx 初始化失败 {kwargs}，回退: {e}")
+                    self.hx = None
+
 
         # P2：打开连接明细 CSV（追加；空文件则写表头）
         self._open_conn_log()
@@ -1714,6 +2247,13 @@ class RealNetSimApp:
         if hasattr(self, 'monitor'):
             self.monitor.running = False
         self.network_down.clear()
+        # D1：关闭 httpx 通道，避免连接泄漏
+        if getattr(self, 'hx', None) is not None:
+            try:
+                self.hx.close()
+            except Exception:
+                pass
+            self.hx = None
         if getattr(self, 'conn_file', None) is not None:
             try:
                 self.conn_file.close()
@@ -1755,6 +2295,8 @@ class RealNetSimApp:
             self.threads_label.configure(text=_("lbl_threads"))
             self.interval_label.configure(text=_("lbl_interval"))
             self.verify_check.configure(text=_("chk_verify"))
+            self.csv_check.configure(text=_("chk_csv"))          # 修复：原来切语言漏刷这个勾选框
+            self.cachebust_check.configure(text=_("chk_cachebust"))
             self.stream_prob_label.configure(text=_("lbl_stream_prob"))
             self.stream_dur_label.configure(text=_("lbl_stream_dur"))
             self.start_button.configure(text=_("btn_start"))
@@ -2032,7 +2574,9 @@ class RealNetSimApp:
                 except Exception:
                     continue
         if not asset_url:
-            asset_url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/realsurf.exe"
+            # 兜底也优先用带版本号的资产名（与发布脚本命名一致）
+            asset_url = (f"https://github.com/{UPDATE_REPO}/releases/download/"
+                         f"{tag}/realsurf{str(tag).lstrip('vV')}.exe")
         asset_size = 0
         try:
             h = requests.head(asset_url, headers=ua, timeout=30, allow_redirects=True)

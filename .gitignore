@@ -4,6 +4,7 @@
 # 运行/构建产物
 access_log*.txt
 conn_log.csv
+conn_log_*.csv
 realsurf_config.json
 sites_export.json
 *.log
@@ -19,6 +20,7 @@ realnet_venv314/
 # 可执行文件 / 测试截图 / 清理隔离区
 *.exe
 gui_update_shot.png
+_shots_v13/
 _trash_*/
 
 # PyInstaller 自动生成的 spec（含本机绝对路径，不入库）

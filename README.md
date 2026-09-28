@@ -12,6 +12,51 @@
 
 ## 更新日志 / Changelog / Nhật ký thay đổi
 
+**v1.3.0（2026-09-28）** — 流量形态大升级：上传 / 大文件 / 小包交互 + HTTP/2·HTTP/3 + HLS 分片
+
+- 📤 **补齐上行与长尾流量形态（P0）**：原来只有「短请求 + 视频」两种形态，上行侧与小包几乎空白，Smart/LightGBM 的特征工程拿不到这些维度的样本。
+  - **上传**（约 20% 命中）：表单 10–100KB / 媒体 1–5MB / 大文件 20–100MB 三档（60/30/10 加权），大文件档带限速，不占满上行。
+  - **大文件持续下载**（约 5% 命中）：网盘 / 驱动 / 更新包型，单次 20–100MB（上限 200MB）。
+  - **小包高频交互**（约 12% 命中）：IM / 游戏心跳 / 长轮询，3–8 次连发、0.2–1.0s 间隔。
+- ⚖️ **域名池换真实榜单档位 + 幂律加权（P1）**：品牌权重从 6/5/4/3/2/1 拉开到 **1000/300/100/30**（头尾比 ~100:1，原 6:1 太扁）；品牌内部再按**子域角色**加权（`www`/`api`/裸域 = 10，`static`/`cdn`/`img`/`support` 等 = 1，其余 = 3）；可选加载 **Tranco / Cisco Umbrella top-1M**（`top1m.csv`，`USE_TOP_LIST=True` 生效，`w ∝ rank^-0.8`），没文件时行为不变。
+  > 注：任务书原表漏了站点池里的 14 个品牌（Xbox / PlayStation / Nintendo / EA / Epic / Ubisoft / Toutiao / Hulu 等），已补齐到对应档位，并把兜底权重 1 → **30**，否则未列品牌会被头部按 1000:1 直接饿死。
+- ⚡ **页面簇发改真并发（P1）**：旧实现是「串行 + 每个子资源 `sleep` 0.3–1.2s」，形态上根本不是簇发；现改为线程池真并发（6–15 个子资源、单资源上限 64KB → 512KB），触发概率 0.4 → **0.9**。
+- 🚀 **新增 HTTP/2 · HTTP/3 通道（P1）**：接入可选 `httpx` 通道（约 70% 流量走 h2/h3，其余仍走 requests h1.1），统一 `_iter_chunks()` 屏蔽两套响应接口差异；协议版本写入 `conn_log.csv` 的 `proto_ver` 列。**未安装 httpx 或握手失败自动回退 requests，任何既有功能都不受影响。**
+- 🎬 **视频改 DASH/HLS 分片形态（P2）**：新增 m3u8 **主清单 → 子清单 → 媒体分片**两级解析（测试源给的都是主清单，只按「非 `#` 行」当分片下，实际只会拉到几个几 KB 的文本文件 ≈ 0 流量），变长分片 + 并行 2–4 路，并支持 `EXT-X-MAP` 初始化段。
+- 🔁 **`?num=` 缓存穿透改成开关（P2）**：新增「穿透缓存(?num=)」勾选项，**默认关闭**。原来每次请求都加 `?num=`，直接把 ADG 缓存打穿，反而破坏了「缓存预热」这个初衷。
+- 🗂️ **`conn_log.csv` 增强（P3）**：32MB 自动分卷轮转；`ts` 改 **UTC ISO8601**（带 `Z`）；`ok` 语义收窄为 **2xx/3xx**（原来「没抛异常就算成功」，403/404/500 也被标成成功，样本标签是错的），新增 `ok_2xx` / `ok_3xx` 保留细分；字段扩到 **15 列**（新增 `method` / `bytes_up` / `proto_ver` / `scene_hint` / `tier` 等），便于离线核对样本分布。
+- 🐞 **顺手修掉两个既有 bug**：① 切换界面语言时「记录连接明细(CSV)」勾选框文案不刷新；② 主窗口输入行 9 个控件挤一行，默认 1000px 窗口下「长连接比例」「单次观看」被右边缘裁掉（参数改不了 = 功能不可用），已拆成两行。
+
+<details><summary>English</summary>
+
+**v1.3.0 (2026-09-28)** — Traffic-shape upgrade: uploads / bulk downloads / small-packet bursts + HTTP/2·HTTP/3 + HLS segments.
+
+- **New traffic shapes (P0)**: uploads (~20%: form 10–100KB / media 1–5MB / bulk 20–100MB, rate-limited), bulk downloads (~5%, 20–100MB, cap 200MB), and high-frequency small-packet interaction (~12%, 3–8 bursts @0.2–1.0s). Previously only "short request + video" existed, so upstream and small-packet features were missing from the training samples.
+- **Power-law weighting (P1)**: brand tiers widened from 6/5/4/3/2/1 to **1000/300/100/30** (~100:1 head-to-tail); per-subdomain role weighting inside a brand (`www`/`api`/bare = 10, `static`/`cdn`/`img`/`support` = 1, else 3); optional **Tranco / Umbrella top-1M** list (`top1m.csv`, `USE_TOP_LIST=True`, `w ∝ rank^-0.8`). The 14 brands missing from the original spec table were restored to their tiers and the fallback weight raised 1 → 30 (otherwise unlisted brands get starved 1000:1).
+- **Real concurrent page burst (P1)**: the old code was serial with a 0.3–1.2s sleep per subresource — not a burst at all. Now a thread pool (6–15 subresources, per-resource cap 64KB → 512KB), trigger probability 0.4 → **0.9**.
+- **HTTP/2 · HTTP/3 (P1)**: optional `httpx` channel (~70% of traffic via h2/h3, rest h1.1 requests), with `_iter_chunks()` unifying both response APIs; protocol version is logged in the new `proto_ver` column. **Falls back to requests automatically if httpx is missing or the handshake fails — no feature is affected.**
+- **DASH/HLS video (P2)**: two-level m3u8 resolution (master → variant → media segments; the test sources are masters, so naive parsing only fetched a few KB of text ≈ zero traffic), variable-length segments, 2–4 parallel fetches, `EXT-X-MAP` init segment support.
+- **`?num=` cache-busting is now a toggle (P2)**, **off by default** — previously every request appended `?num=`, punching straight through the ADG cache and defeating the "cache warm-up" purpose.
+- **`conn_log.csv` (P3)**: 32MB rotation; `ts` is now **UTC ISO8601** (`Z`); `ok` narrowed to **2xx/3xx** (previously "no exception = success", mislabelling 403/404/500 as successes) with new `ok_2xx` / `ok_3xx`; 15 columns (adds `method` / `bytes_up` / `proto_ver` / `scene_hint` / `tier`).
+- **Two pre-existing bugs fixed**: (1) the "Log connections (CSV)" checkbox text was not refreshed on language switch; (2) the 9 control row overflowed the default 1000px window, clipping "Stream Ratio" and "Watch Duration" (unusable settings) — now split into two rows.
+
+</details>
+
+<details><summary>Tiếng Việt</summary>
+
+**v1.3.0 (2026-09-28)** — Nâng cấp hình thái lưu lượng: tải lên / tải xuống tệp lớn / gói nhỏ tần suất cao + HTTP/2·HTTP/3 + phân đoạn HLS.
+
+- **Hình thái mới (P0)**: tải lên (~20%: biểu mẫu 10–100KB / media 1–5MB / tệp lớn 20–100MB, có giới hạn tốc độ), tải xuống tệp lớn (~5%, 20–100MB, tối đa 200MB), tương tác gói nhỏ tần suất cao (~12%, 3–8 lần, cách 0.2–1.0s). Trước đây chỉ có "yêu cầu ngắn + video" nên thiếu đặc trưng phía tải lên và gói nhỏ.
+- **Trọng số luật lũy thừa (P1)**: mở rộng từ 6/5/4/3/2/1 thành **1000/300/100/30** (~100:1); thêm trọng số theo vai trò tên miền con (`www`/`api`/tên miền trần = 10, `static`/`cdn`/`img`/`support` = 1, còn lại 3); hỗ trợ tùy chọn danh sách **Tranco / Umbrella top-1M** (`top1m.csv`, `USE_TOP_LIST=True`, `w ∝ rank^-0.8`). 14 thương hiệu bị thiếu trong bảng gốc đã được bổ sung và trọng số mặc định tăng 1 → 30.
+- **Bùng nổ trang song song thật (P1)**: bản cũ chạy tuần tự với sleep 0.3–1.2s mỗi tài nguyên — không phải "bùng nổ". Nay dùng thread pool (6–15 tài nguyên, giới hạn 64KB → 512KB), xác suất kích hoạt 0.4 → **0.9**.
+- **HTTP/2 · HTTP/3 (P1)**: kênh `httpx` tùy chọn (~70% lưu lượng qua h2/h3, còn lại requests h1.1), `_iter_chunks()` thống nhất hai API phản hồi; ghi phiên bản giao thức vào cột `proto_ver`. **Tự động quay về requests nếu thiếu httpx hoặc bắt tay thất bại.**
+- **Video DASH/HLS (P2)**: phân tích m3u8 hai cấp (master → biến thể → phân đoạn), phân đoạn dài thay đổi, 2–4 luồng song song, hỗ trợ `EXT-X-MAP`.
+- **`?num=` thành công tắc (P2)**, **mặc định TẮT** — trước đây luôn thêm `?num=`, phá hỏng mục đích "làm nóng cache" của ADG.
+- **`conn_log.csv` (P3)**: quay vòng 32MB; `ts` theo **UTC ISO8601** (`Z`); `ok` thu hẹp còn **2xx/3xx** (trước đây "không lỗi = thành công", gán nhãn sai cho 403/404/500), thêm `ok_2xx` / `ok_3xx`; 15 cột.
+- **Sửa 2 lỗi cũ**: (1) nhãn hộp kiểm "Ghi kết nối (CSV)" không đổi khi chuyển ngôn ngữ; (2) hàng 9 control tràn cửa sổ 1000px làm mất "Tỉ lệ luồng" và "Thời gian xem" — nay tách thành hai hàng.
+
+</details>
+
 **v1.2.1（2026-09-28）** — 更新通道修复 + 下载可视化
 
 - 🚫 **修复「一直提示更新频繁 / 检查更新失败」（核心）**：旧版用 GitHub **REST API** 检查更新（未鉴权仅 **60 次/小时/IP**），代理共享出口被别人打满即返回 **403** → 程序一直报「更新频繁」，更新通道等于废掉。现改用 **`releases.atom` 订阅源 + 网页 `/releases/latest` 302 重定向**（**两者均无速率限制**）取最新版本号与说明，彻底摆脱 403。
@@ -60,7 +105,8 @@
 ### 这是什么
 
 `拟真冲浪 RealSurf`（原名「真实上网环境模拟器」）在本地发起大量「像真人」的网络访问，
-让出口流量同时具备两种形态，从而更贴近真实用户、补足 Smart 组训练所需的流量特征；
+让出口流量具备**多种真实形态**（短请求 / 长视频流 / 上传 / 大文件下载 / 小包高频交互），
+从而更贴近真实用户、补足 Smart 组训练所需的流量特征；
 此外也能给 **AdGuardHome (ADG) 的 DNS 缓存做预热与命中测试**（先跑一轮把常用域名灌进缓存，
 再对比命中率 / 解析延迟的变化）：
 
@@ -68,13 +114,25 @@
   带 `Referer` / `Sec-Fetch-*` / `Accept-Language` 等完整请求头，5–30s 随机间隔，
   多子域名访问，连接保活（keep-alive）。
 - **长连接（视频流）模拟**：按可配比例把部分 worker 切换为「看视频」会话——
-  Range 分段拉取公开测试视频（类似 DASH/HLS 自适应码率），或打开视频平台观看页并伴随
+  **HLS/DASH 分片拉取**（m3u8 主清单 → 子清单 → 媒体分片两级解析，变长分片 + 并行 2–4 路，
+  含 `EXT-X-MAP` 初始化段），或 Range 分段拉取公开测试视频，或打开视频平台观看页并伴随
   零星子资源请求，带真实缓冲间隙与观看时长。
+- **上传 / 大文件下载 / 小包交互（v1.3.0 新增）**：约 20% 概率发**上传**（表单 10–100KB /
+  媒体 1–5MB / 大文件 20–100MB 三档），约 5% 发**大文件持续下载**（网盘 / 驱动型，20–100MB），
+  约 12% 发**小包高频交互**（IM / 游戏心跳 / 长轮询，3–8 次连发）——补齐上行与小包特征。
+- **HTTP/2 · HTTP/3 通道**：约 70% 流量走可选 `httpx` 通道（h2/h3），其余走 requests h1.1；
+  协议版本写入 `conn_log.csv` 的 `proto_ver` 列。未安装 httpx 时自动回退，功能不受影响。
 - **断联自动恢复**：内置网络监控线程，全部失败即判定断联、暂停发流并探测，恢复后自动续上。
 - **失效域名自动剔除**：连续失败达阈值（DNS 错误立即）的域名自动从列表移除。
 - **站点编辑器**：图形化增删站点、导出 JSON；柱状图实时展示各站点网速与状态（不显示未访问的 Idle 站点）。
 - **ADG DNS 缓存预热 / 命中测试**：先跑一轮把常用域名解析结果灌入 AdGuardHome 缓存，
   再观察命中率与解析延迟的变化，用来验证 ADG 缓存链路是否正常工作。
+  > 注意：`?num=` 缓存穿透现在是**默认关闭**的勾选项（「穿透缓存(?num=)」）。旧版每次都加 `?num=`，
+  > 会把 ADG 缓存直接打穿，反而与「预热缓存」的目的相悖。
+- **连接明细审计**：`conn_log.csv` 记录 15 列字段（`ts` UTC ISO8601 / `site` / `host` / `url` /
+  `method` / `status` / `ok` / `ok_2xx` / `ok_3xx` / `bytes_down` / `bytes_up` / `total_ms` /
+  `proto_ver` / `scene_hint` / `tier`），32MB 自动分卷；可离线核对样本分布（如上传占比、
+  协议版本占比）。`group_name` / `node_name` 客户端拿不到，本表不替代内核打标。
 - **多语言界面**：中文 / English / Tiếng Việt，**自动识别 Windows 默认语言**切换
   （中文系列→中文，越南语→越南语，其余地区→英文），也可用菜单「语言」手动切换并持久化。
 
@@ -82,7 +140,7 @@
 
 ### 下载 / 更新
 
-- 到本仓库 **Releases** 下载最新的 `realsurf<版本>.exe`（如 `realsurf1.2.1.exe`；单文件，双击即用，无需安装）。
+- 到本仓库 **Releases** 下载最新的 `realsurf<版本>.exe`（如 `realsurf1.3.0.exe`；单文件，双击即用，无需安装）。
   **发布资产名带版本号**，下载后一看文件名就知道是哪个版本。
 - 软件启动后会**静默检查一次 GitHub 更新**；也可通过菜单「帮助 → 检查更新」手动检查，
   发现新版本可一键下载并自动替换重启。
@@ -103,8 +161,8 @@
 
 ```bash
 python -m venv realnet_venv314
-realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests
-realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." realnet_sim.py
+realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests "httpx[http2]"
+realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." --collect-all httpx --collect-all h2 --collect-all httpcore --collect-all anyio realnet_sim.py
 ```
 
 产物在 `dist/realsurf.exe`。
@@ -116,16 +174,19 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 | `realnet_sim.py` | 主程序源码 |
 | `deploy.py` | 发布脚本（推送源码 + 建/更新 GitHub Release + 上传 exe） |
 | `realsurf.ico` / `icon_preview.png` | 应用图标 / README 预览图 |
-| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗） |
+| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_v13.py`（v1.3.0 优化任务书专项，含真网络与离线自检）、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗）、`gui_v13_test.py`（GUI 三语言 + 布局 + 更新通道 + 启停回归） |
 | `packaging/` | 打包相关：`realsurf.spec`、`realnet_sim.spec`、`make_icon.py` |
 | `archive/` | 历史遗留文件（旧版 `multi_site_access.py` 与旧 `readme.txt`） |
 | `dist/` | 构建产物目录（已在 `.gitignore` 中；`deploy.py` 从这里取 exe 上传） |
 
-运行测试（在项目根目录）：`python tests/smoke_headless.py`、`python tests/test_update_dl.py` 等。
+运行测试（在项目根目录）：`python tests/test_v13.py`（v1.3.0 全量专项，含真网络）、
+`python tests/test_v13.py --offline`（只跑离线静态/日志/轮转自检）、
+`python tests/gui_v13_test.py`（GUI 三语言 + 布局 + 更新通道 + 启停回归，产出截图）、
+`python tests/smoke_headless.py`、`python tests/test_update_dl.py` 等。
 
 ### 版本
 
-当前版本：`v1.2.1`
+当前版本：`v1.3.0`
 
 [↑ 回到顶部](#拟真冲浪-realsurf) · [切换到 English](#english) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -144,8 +205,17 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
   full headers (`Referer`, `Sec-Fetch-*`, `Accept-Language`), random 5–30s intervals, many
   subdomains, keep-alive connections.
 - **Long-connection (video stream) simulation**: a configurable ratio of workers become "watching
-  video" sessions — Range-fetching public test videos (like DASH/HLS adaptive bitrate) or opening
-  video pages with sporadic sub-resource requests, with realistic buffering gaps and watch time.
+  video" sessions — **HLS/DASH segment fetching** (two-level m3u8 resolution: master → variant →
+  media segments; variable-length segments, 2–4 parallel fetches, `EXT-X-MAP` init segments),
+  Range-fetching public test videos, or opening video pages with sporadic sub-resource requests,
+  with realistic buffering gaps and watch time.
+- **Uploads / bulk downloads / small-packet bursts (new in v1.3.0)**: ~20% uploads (form 10–100KB /
+  media 1–5MB / bulk 20–100MB), ~5% bulk downloads (20–100MB), ~12% high-frequency small-packet
+  interaction (IM / game heartbeat / long-polling, 3–8 bursts) — filling the upstream and
+  small-packet feature space that was previously empty.
+- **HTTP/2 · HTTP/3**: ~70% of traffic uses the optional `httpx` channel (h2/h3), the rest stays on
+  requests h1.1; the protocol version is logged in the `proto_ver` column. Falls back automatically
+  when httpx is unavailable — no feature is affected.
 - **Auto-recovery on disconnect**: a built-in monitor detects full failure, pauses, probes, and
   auto-resumes when the network recovers.
 - **Dead-domain auto-removal**: domains that keep failing (DNS errors immediately) are removed.
@@ -153,6 +223,14 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
   (Idle sites with no activity are hidden).
 - **ADG DNS cache warm-up / hit test**: run one pass to populate the AdGuardHome cache, then watch
   hit rate and resolve latency change — a quick sanity check that the ADG cache chain works.
+  > Note: `?num=` cache-busting is now an **off-by-default** toggle ("Bust cache (?num=)"). The old
+  > build appended `?num=` to every request, punching straight through the ADG cache and defeating
+  > the warm-up purpose.
+- **Connection audit trail**: `conn_log.csv` records 15 columns (`ts` UTC ISO8601 / `site` / `host` /
+  `url` / `method` / `status` / `ok` / `ok_2xx` / `ok_3xx` / `bytes_down` / `bytes_up` / `total_ms` /
+  `proto_ver` / `scene_hint` / `tier`) with 32MB rotation, so you can audit sample distribution
+  offline (e.g. upload share, protocol mix). `group_name` / `node_name` are not available
+  client-side — this file does not replace kernel-level tagging.
 - **Multilingual UI**: 中文 / English / Tiếng Việt. **Auto-detects the Windows display language**
   (Chinese family → 中文, Vietnamese → Tiếng Việt, everything else → English); you can also switch
   manually via the "Language" menu (persisted).
@@ -162,7 +240,7 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 
 ### Download / Update
 
-- Get the latest `realsurf<version>.exe` (e.g. `realsurf1.2.1.exe`) from this repo's **Releases** — the
+- Get the latest `realsurf<version>.exe` (e.g. `realsurf1.3.0.exe`) from this repo's **Releases** — the
   asset name carries the version, so you can tell versions apart at a glance (single file, just run it).
 - On launch it **silently checks GitHub once** for updates; or use "Help → Check for Update" to
   check manually and one-click download + auto-replace & restart.
@@ -183,15 +261,15 @@ Requires **Python 3.14.x (system install; the managed build lacks tkinter and ca
 
 ```bash
 python -m venv realnet_venv314
-realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests
-realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." realnet_sim.py
+realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests "httpx[http2]"
+realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." --collect-all httpx --collect-all h2 --collect-all httpcore --collect-all anyio realnet_sim.py
 ```
 
 Output: `dist/realsurf.exe`.
 
 ### Version
 
-Current version: `v1.2.1`
+Current version: `v1.3.0`
 
 [↑ Back to top](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -202,7 +280,8 @@ Current version: `v1.2.1`
 ### Đây là gì
 
 `拟真冲浪 RealSurf` (RealSurf) tạo ra nhiều yêu cầu web giống con người ở máy local, giúp lưu lượng
-đầu ra kết hợp hai dạng và giống người thật hơn — cung cấp đặc trưng lưu lượng nhóm Smart cần để huấn luyện.
+đầu ra có **nhiều dạng thực tế** (yêu cầu ngắn / luồng video dài / tải lên / tải xuống tệp lớn /
+gói nhỏ tần suất cao) và giống người thật hơn — cung cấp đặc trưng lưu lượng nhóm Smart cần để huấn luyện.
 Cũng rất tiện để **làm nóng và kiểm tra cache DNS của AdGuardHome (ADG)** (chạy một lượt để nạp cache,
 rồi so sánh tỉ lệ hit / độ trễ phân giải):
 
@@ -210,8 +289,15 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
   header đầy đủ (`Referer`, `Sec-Fetch-*`, `Accept-Language`), khoảng cách ngẫu nhiên 5–30s, nhiều
   tên miền phụ, giữ kết nối (keep-alive).
 - **Mô phỏng luồng dài (video)**: tỉ lệ worker cấu hình được chuyển thành phiên "xem video" —
-  lấy video kiểm thử công khai theo Range (như DASH/HLS), hoặc mở trang video kèm yêu cầu tài nguyên
-  thưa thớt, có khoảng nghỉ bộ đệm và thời gian xem thực tế.
+  **tải phân đoạn HLS/DASH** (phân tích m3u8 hai cấp: master → biến thể → phân đoạn; phân đoạn dài
+  thay đổi, 2–4 luồng song song, có `EXT-X-MAP`), lấy video kiểm thử công khai theo Range, hoặc mở
+  trang video kèm yêu cầu tài nguyên thưa thớt, có khoảng nghỉ bộ đệm và thời gian xem thực tế.
+- **Tải lên / tải xuống tệp lớn / gói nhỏ (mới ở v1.3.0)**: ~20% tải lên (biểu mẫu 10–100KB / media
+  1–5MB / tệp lớn 20–100MB), ~5% tải xuống tệp lớn (20–100MB), ~12% tương tác gói nhỏ tần suất cao
+  (IM / nhịp tim game / long-polling, 3–8 lần) — bổ sung đặc trưng phía tải lên và gói nhỏ.
+- **HTTP/2 · HTTP/3**: ~70% lưu lượng dùng kênh `httpx` tùy chọn (h2/h3), còn lại requests h1.1;
+  phiên bản giao thức ghi vào cột `proto_ver`. Tự động quay về khi thiếu httpx — không ảnh hưởng
+  tính năng nào.
 - **Tự phục hồi khi mất mạng**: luồng giám sát phát hiện toàn bộ thất bại, tạm dừng, dò và tự tiếp tục
   khi mạng hồi phục.
 - **Tự xóa tên miền chết**: tên miền thất bại liên tục (lỗi DNS thì lập tức) sẽ bị xóa.
@@ -219,6 +305,11 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
   trang theo thời gian thực (ẩn các trang Idle chưa hoạt động).
 - **Làm nóng / kiểm tra cache DNS ADG**: chạy một lượt để nạp cache AdGuardHome, rồi theo dõi tỉ lệ
   hit và độ trễ phân giải — cách nhanh để xác nhận chuỗi cache ADG hoạt động.
+  > Lưu ý: phá cache `?num=` nay là tùy chọn **mặc định TẮT** ("Phá cache (?num=)"). Bản cũ luôn thêm
+  > `?num=`, phá hỏng mục đích "làm nóng cache" của ADG.
+- **Nhật ký kết nối**: `conn_log.csv` ghi 15 cột (`ts` UTC ISO8601 / `site` / `host` / `url` /
+  `method` / `status` / `ok` / `ok_2xx` / `ok_3xx` / `bytes_down` / `bytes_up` / `total_ms` /
+  `proto_ver` / `scene_hint` / `tier`), quay vòng 32MB — kiểm tra phân bố mẫu ngoại tuyến.
 - **Giao diện đa ngôn ngữ**: 中文 / English / Tiếng Việt. **Tự nhận biết ngôn ngữ hiển thị Windows**
   (họ tiếng Trung → 中文, tiếng Việt → Tiếng Việt, còn lại → English); cũng có thể đổi thủ công qua menu
   "Ngôn ngữ" (được lưu).
@@ -228,7 +319,7 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 
 ### Tải / Cập nhật
 
-- Tải `realsurf<phiên bản>.exe` mới nhất (vd `realsurf1.2.1.exe`) từ **Releases** — tên asset có kèm
+- Tải `realsurf<phiên bản>.exe` mới nhất (vd `realsurf1.3.0.exe`) từ **Releases** — tên asset có kèm
   phiên bản nên nhìn là biết ngay (file duy nhất, bấm đúp để chạy).
 - Khi khởi động sẽ **tự kiểm tra GitHub một lần**; hoặc dùng "Trợ giúp → Kiểm tra cập nhật" để kiểm tra
   thủ công và tải + tự thay thế, khởi động lại một chạm.
@@ -249,14 +340,14 @@ Cần **Python 3.14.x (bản cài hệ thống; bản quản lý thiếu tkinter
 
 ```bash
 python -m venv realnet_venv314
-realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests
-realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." realnet_sim.py
+realnet_venv314\Scripts\pip install pyinstaller ttkbootstrap matplotlib requests "httpx[http2]"
+realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon realsurf.ico --add-data "realsurf.ico;." --collect-all httpx --collect-all h2 --collect-all httpcore --collect-all anyio realnet_sim.py
 ```
 
 Kết quả: `dist/realsurf.exe`.
 
 ### Phiên bản
 
-Phiên bản hiện tại: `v1.2.1`
+Phiên bản hiện tại: `v1.3.0`
 
 [↑ Về đầu](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Switch to English](#english)
