@@ -33,6 +33,8 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 time.sleep(0.5)
 
 # 2) 导入被测模块
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import realnet_sim as R
 
 # 3) 注入仅本地可达的测试站点（避免依赖外网）

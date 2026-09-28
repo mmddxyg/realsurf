@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['D:/Users/Administrator/Desktop/Network stress testing/realnet_sim.py'],
+    ['realnet_sim.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('realsurf.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['realsurf.ico'],
 )

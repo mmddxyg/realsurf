@@ -20,6 +20,7 @@
   - 根因②：发现新版本后的 `messagebox.askyesno` 在**后台线程**直接弹出，弹窗可能落到「关于」窗口背后，用户点了却看不到确认框。
   - 修复：下载改为**后台线程**，弹出进度条对话框（**百分比 + 已下载/总大小 + 实时速度 MB/s** + 可取消按钮）；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口。下载完成自动写重启脚本并替换重启。
   - 强化：进度总大小取 GitHub 资源 `Content-Length`（HEAD 失败则用 GET 响应头），确保**一定显示百分比进度条**而非空转；对话框**居中并短暂置顶**，确保一定看得见；下载失败会**显示具体原因**，不再静默无反应。（本机已用真实桌面截图验证进度条确实渲染）
+- 🏷️ **EXE 名字带版本号**：Release 资产命名为 `realsurf<版本>.exe`（如 `realsurf1.2.1.exe`）；自动更新也把新文件保存为**带版本号**的名字（旧版本文件保留不删，便于对照）——一眼就知道哪个是哪个。更新检查用「发布页解析」拿资产名，不写死文件名。
 
 <details><summary>English</summary>
 
@@ -81,7 +82,8 @@
 
 ### 下载 / 更新
 
-- 到本仓库 **Releases** 下载最新的 `realsurf.exe`（单文件，双击即用，无需安装）。
+- 到本仓库 **Releases** 下载最新的 `realsurf<版本>.exe`（如 `realsurf1.2.1.exe`；单文件，双击即用，无需安装）。
+  **发布资产名带版本号**，下载后一看文件名就知道是哪个版本。
 - 软件启动后会**静默检查一次 GitHub 更新**；也可通过菜单「帮助 → 检查更新」手动检查，
   发现新版本可一键下载并自动替换重启。
 
@@ -109,14 +111,17 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 
 ### 目录结构
 
-| 文件 | 说明 |
+| 路径 | 说明 |
 | --- | --- |
 | `realnet_sim.py` | 主程序源码 |
-| `smoke_headless.py` | 无界面冒烟测试（驱动 `visit_one` / `stream_session`，验证流量产生） |
-| `test_traffic.py` | 受控流量验证（对可达站点确认请求计数与状态） |
-| `realsurf.ico` | 应用图标（由 `make_icon.py` 生成，构建时 `--icon` 使用） |
-| `make_icon.py` | 生成 `realsurf.ico` 的脚本（Pillow 绘制，无需 AI 出图） |
-| `realsurf.exe` | 发布用的单文件可执行程序（见 Releases） |
+| `deploy.py` | 发布脚本（推送源码 + 建/更新 GitHub Release + 上传 exe） |
+| `realsurf.ico` / `icon_preview.png` | 应用图标 / README 预览图 |
+| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗） |
+| `packaging/` | 打包相关：`realsurf.spec`、`realnet_sim.spec`、`make_icon.py` |
+| `archive/` | 历史遗留文件（旧版 `multi_site_access.py` 与旧 `readme.txt`） |
+| `dist/` | 构建产物目录（已在 `.gitignore` 中；`deploy.py` 从这里取 exe 上传） |
+
+运行测试（在项目根目录）：`python tests/smoke_headless.py`、`python tests/test_update_dl.py` 等。
 
 ### 版本
 
@@ -157,7 +162,8 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 
 ### Download / Update
 
-- Get the latest `realsurf.exe` from this repo's **Releases** (single file, double-click to run).
+- Get the latest `realsurf<version>.exe` (e.g. `realsurf1.2.1.exe`) from this repo's **Releases** — the
+  asset name carries the version, so you can tell versions apart at a glance (single file, just run it).
 - On launch it **silently checks GitHub once** for updates; or use "Help → Check for Update" to
   check manually and one-click download + auto-replace & restart.
 
@@ -222,7 +228,8 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 
 ### Tải / Cập nhật
 
-- Tải `realsurf.exe` mới nhất từ **Releases** của repo (file duy nhất, bấm đúp để chạy).
+- Tải `realsurf<phiên bản>.exe` mới nhất (vd `realsurf1.2.1.exe`) từ **Releases** — tên asset có kèm
+  phiên bản nên nhìn là biết ngay (file duy nhất, bấm đúp để chạy).
 - Khi khởi động sẽ **tự kiểm tra GitHub một lần**; hoặc dùng "Trợ giúp → Kiểm tra cập nhật" để kiểm tra
   thủ công và tải + tự thay thế, khởi động lại một chạm.
 

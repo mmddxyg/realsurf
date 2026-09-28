@@ -58,6 +58,7 @@ def main():
     token = read_token()
     ver = read_version()
     tag = f'v{ver}'
+    asset_name = f'realsurf{ver}.exe'   # 资产名带版本号，用户下载即可区分版本
     H = {'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'}
 
     exe = args.exe or ('dist/realsurf.exe' if os.path.exists(os.path.join(ROOT, 'dist', 'realsurf.exe'))
@@ -97,12 +98,12 @@ def main():
         rel = r.json()
         print('release 已创建:', rel['html_url'])
 
-    # 4) 上传 exe（同名则先删旧的）
+    # 4) 上传 exe（先删掉该 release 下所有旧 exe 资产，避免新旧并存混淆）
     for a in rel.get('assets', []):
-        if a['name'] == 'realsurf.exe':
+        if a.get('name', '').lower().endswith('.exe'):
             requests.delete(f"{API}/repos/{REPO}/releases/assets/{a['id']}", headers=H, timeout=60)
-            print('已删除旧 asset')
-    upload_url = rel['upload_url'].split('{')[0] + '?name=realsurf.exe'
+            print('已删除旧 asset:', a.get('name'))
+    upload_url = rel['upload_url'].split('{')[0] + f'?name={asset_name}'
     size = os.path.getsize(exe_abs)
     print(f'上传 {exe_abs} ({size/1048576:.1f} MB) ...')
     with open(exe_abs, 'rb') as f:

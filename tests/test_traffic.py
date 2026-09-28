@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """受控流量验证：用可达的国内站点证明请求管线(计数+状态)正常。"""
 import threading
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import realnet_sim as R
 
 class MiniApp:

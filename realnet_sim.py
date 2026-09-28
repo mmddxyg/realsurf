@@ -2004,8 +2004,35 @@ class RealNetSimApp:
             if err is not None:
                 raise err          # 纯网络失败 → 让上层按「无法连接」处理
             return None, None, None, None, 0
-        # 资产按固定命名约定推导；大小用 HEAD 的 Content-Length
-        asset_url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/realsurf.exe"
+        # 资产名不写死（发布时带版本号，如 realsurf1.2.1.exe）：
+        # 优先从 expanded_assets 页面解析真实下载链接（命名无关），失败再退回命名约定。
+        asset_url = None
+        try:
+            ea = requests.get(
+                f"https://github.com/{UPDATE_REPO}/releases/expanded_assets/{tag}",
+                headers=ua, timeout=20)
+            if ea.status_code == 200:
+                links = re.findall(
+                    r'/' + re.escape(UPDATE_REPO) + r'/releases/download/[^"\'\s<>]+', ea.text)
+                exes = [l for l in links if l.lower().endswith('.exe')]
+                pick = exes[0] if exes else (links[0] if links else None)
+                if pick:
+                    asset_url = 'https://github.com' + pick
+        except Exception as e:
+            logger.warning(f"解析资产链接失败: {e}")
+        if not asset_url:
+            ver_bare = str(tag).lstrip('vV')
+            for cand in (f"realsurf{ver_bare}.exe", "realsurf.exe"):
+                u = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/{cand}"
+                try:
+                    h = requests.head(u, headers=ua, timeout=30, allow_redirects=True)
+                    if h.status_code == 200:
+                        asset_url = u
+                        break
+                except Exception:
+                    continue
+        if not asset_url:
+            asset_url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/realsurf.exe"
         asset_size = 0
         try:
             h = requests.head(asset_url, headers=ua, timeout=30, allow_redirects=True)
@@ -2233,14 +2260,19 @@ class RealNetSimApp:
             self.root.after(0, lambda: self._stop_bar(bar))
             self.root.after(0, lambda: self._set_restart_label(lbl))
             cur = sys.executable          # onefile 下指向真实磁盘 exe（已实测）
+            # 新文件按「带版本号」命名（如 realsurf1.2.1.exe），便于区分版本；
+            # 旧版文件保留不删（用户可能想留着旧版本对照）。
+            ver_bare = str(new_version).lstrip('vV')
+            target = os.path.join(os.path.dirname(cur), f"realsurf{ver_bare}.exe")
             bat = os.path.join(tmp, "realsurf_updater.bat")
             with open(bat, 'w', encoding='utf-8') as f:
                 f.write('@echo off\n')
                 f.write('timeout /t 1 >nul\n')
                 f.write(f'taskkill /f /im "{os.path.basename(cur)}" >nul 2>nul\n')
-                f.write(f'copy /Y "{new_exe}" "{cur}"\n')
+                f.write(f'copy /Y "{new_exe}" "{target}"\n')
                 f.write(f'del /Q "{new_exe}"\n')
-                f.write(f'start "" "{cur}"\n')
+                f.write(f'start "" "{target}"\n')
+            logger.info(f"更新文件将保存为 {target}")
             self.root.after(900, lambda: self._finish_update(dlg, bat))
         except _CancelUpdate:
             try:
