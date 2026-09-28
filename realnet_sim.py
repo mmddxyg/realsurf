@@ -170,6 +170,11 @@ I18N = {
         'upd_fail_msg': '检查更新时出现问题，请稍后再试。',
         'upd_apply_fail_title': '更新失败',
         'upd_apply_fail_msg': '自动更新未能完成，已为你打开发布页，\n请手动下载最新版 realsurf.exe 覆盖即可。',
+        'upd_downloading': '正在下载更新 {ver}…',
+        'upd_canceled': '已取消更新',
+        'upd_restart': '下载完成，即将重启以完成更新…',
+        'upd_checking': '正在检查更新…',
+        'btn_cancel': '取消',
     },
     'en': {
         'menu_file': 'File', 'menu_sites': 'Site List', 'menu_export': 'Export Site List (JSON)',
@@ -224,6 +229,11 @@ I18N = {
         'upd_fail_msg': 'Problem during update check; retry later.',
         'upd_apply_fail_title': 'Update Failed',
         'upd_apply_fail_msg': 'Auto-update incomplete; release page opened.\nDownload latest realsurf.exe manually.',
+        'upd_downloading': 'Downloading update {ver}…',
+        'upd_canceled': 'Update canceled',
+        'upd_restart': 'Download complete; restarting to finish update…',
+        'upd_checking': 'Checking for update…',
+        'btn_cancel': 'Cancel',
     },
     'vi': {
         'menu_file': 'Tập tin', 'menu_sites': 'Danh sách trang', 'menu_export': 'Xuất danh sách (JSON)',
@@ -278,6 +288,11 @@ I18N = {
         'upd_fail_msg': 'Lỗi khi kiểm tra cập nhật; thử lại sau.',
         'upd_apply_fail_title': 'Cập nhật thất bại',
         'upd_apply_fail_msg': 'Tự cập nhật chưa xong; đã mở trang phát hành.\nTải realsurf.exe mới nhất thủ công.',
+        'upd_downloading': 'Đang tải cập nhật {ver}…',
+        'upd_canceled': 'Đã hủy cập nhật',
+        'upd_restart': 'Tải xong; sắp khởi động lại để hoàn tất…',
+        'upd_checking': 'Đang kiểm tra cập nhật…',
+        'btn_cancel': 'Hủy',
     },
 }
 
@@ -797,7 +812,7 @@ STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
@@ -1767,7 +1782,13 @@ class RealNetSimApp:
             pass
 
     def _set_update_status(self, text, style='secondary'):
-        # 刷新欢迎窗口里的状态文字（窗口未打开时静默忽略）
+        # 可能在后台线程调用，统一切回主线程操作 Tk 控件，避免随机崩溃
+        try:
+            self.root.after(0, lambda: self._set_update_status_impl(text, style))
+        except Exception:
+            pass
+
+    def _set_update_status_impl(self, text, style='secondary'):
         try:
             if getattr(self, 'update_status_var', None):
                 self.update_status_var.set(text)
@@ -1918,6 +1939,8 @@ class RealNetSimApp:
     def check_update(self, manual=False, quiet=False):
         """检查 GitHub 更新。quiet=True 时只刷新状态行，绝不弹任何错误框。"""
         try:
+            if manual:
+                self._set_update_status(_("upd_checking"), 'secondary')
             url = f"{GITHUB_API}/repos/{UPDATE_REPO}/releases/latest"
             # 注意：HTTP 头必须是 latin-1 可编码，UA 只能用纯 ASCII
             hdr = {'Accept': 'application/vnd.github+json', 'User-Agent': APP_UA}
@@ -1925,12 +1948,12 @@ class RealNetSimApp:
             if resp.status_code == 404:
                 self._set_update_status(_("upd_no_release"), 'warning')
                 if manual:
-                    messagebox.showinfo(_("menu_check_update"), _("upd_no_release_msg"))
+                    self.root.after(0, lambda: messagebox.showinfo(_("menu_check_update"), _("upd_no_release_msg")))
                 return
             if resp.status_code == 403:
                 self._set_update_status(_("upd_rate_limit"), 'warning')
                 if manual:
-                    messagebox.showwarning(_("menu_check_update"), _("upd_rate_limit_msg"))
+                    self.root.after(0, lambda: messagebox.showwarning(_("menu_check_update"), _("upd_rate_limit_msg")))
                 return
             resp.raise_for_status()
             rel = resp.json()
@@ -1941,7 +1964,7 @@ class RealNetSimApp:
             if remote_ver <= local_ver:
                 self._set_update_status(_("upd_latest", ver=APP_VERSION), 'success')
                 if manual:
-                    messagebox.showinfo(_("menu_check_update"), _("upd_latest_msg", ver=APP_VERSION))
+                    self.root.after(0, lambda: messagebox.showinfo(_("menu_check_update"), _("upd_latest_msg", ver=APP_VERSION)))
                 return
             # 发现新版本
             self._set_update_status(_("upd_found_status", tag=tag), 'info')
@@ -1951,12 +1974,19 @@ class RealNetSimApp:
                     asset_url = a.get('browser_download_url')
                     break
             if manual:
-                info = _("upd_found_msg", tag=tag, ver=APP_VERSION, notes=notes[:600])
-                if asset_url and messagebox.askyesno(_("menu_check_update"), info):
-                    self._apply_update(asset_url, tag)
-                elif not asset_url:
-                    webbrowser.open(rel.get('html_url',
-                                            f"https://github.com/{UPDATE_REPO}/releases/latest"))
+                parent = self.about_window if (getattr(self, 'about_window', None)
+                                               and self.about_window.winfo_exists()) else self.root
+                if asset_url:
+                    info = _("upd_found_msg", tag=tag, ver=APP_VERSION, notes=notes[:600])
+                    def _ask_and_apply():
+                        if messagebox.askyesno(_("menu_check_update"), info, parent=parent):
+                            self._start_update_download(parent, asset_url, tag)
+                    self.root.after(0, _ask_and_apply)
+                else:
+                    def _open_repo():
+                        webbrowser.open(rel.get('html_url',
+                                               f"https://github.com/{UPDATE_REPO}/releases/latest"))
+                    self.root.after(0, _open_repo)
             else:
                 logger.info(f"发现新版本 {tag}（当前 v{APP_VERSION}）")
                 if quiet:
@@ -1972,26 +2002,134 @@ class RealNetSimApp:
             self._set_update_status(_("upd_conn_fail"), 'warning')
             logger.warning("检查更新失败：无法连接 GitHub（网络或代理问题）")
             if manual:
-                messagebox.showwarning(_("menu_check_update"), _("upd_conn_fail_msg"))
+                self.root.after(0, lambda: messagebox.showwarning(_("menu_check_update"), _("upd_conn_fail_msg")))
         except Exception as e:
             self._set_update_status(_("upd_fail_status"), 'warning')
             logger.error(f"检查更新异常: {e}")
             if manual:
-                messagebox.showerror(_("menu_check_update"), _("upd_fail_msg"))
+                self.root.after(0, lambda: messagebox.showerror(_("menu_check_update"), _("upd_fail_msg")))
 
-    def _apply_update(self, asset_url, new_version):
-        import tempfile, os, sys, subprocess
+    def _start_update_download(self, parent, asset_url, new_version):
+        """主线程创建下载进度对话框，并启动后台下载线程（不再同步卡界面）。"""
+        dlg = ttkb.Toplevel(parent if parent else self.root)
+        dlg.title(_("menu_check_update"))
+        dlg.geometry("430x150")
+        dlg.resizable(False, False)
         try:
-            tmp = tempfile.gettempdir()
-            new_exe = os.path.join(tmp, "realsurf_update.exe")
+            dlg.transient(parent if parent else self.root)
+            dlg.grab_set()
+        except Exception:
+            pass
+        apply_app_icon(dlg)
+        cancel_event = threading.Event()
+        lbl = ttkb.Label(dlg, text=_("upd_downloading", ver=new_version), font=(UI_FONT, 10))
+        lbl.pack(pady=(18, 8))
+        bar = ttkb.Progressbar(dlg, length=370, mode='indeterminate', bootstyle=INFO)
+        bar.pack(padx=24)
+        pct = ttkb.Label(dlg, text='', font=(UI_FONT, 9), bootstyle='secondary')
+        pct.pack(pady=(4, 4))
+        btn_cancel = ttkb.Button(dlg, text=_("btn_cancel"), bootstyle=SECONDARY,
+                                 command=cancel_event.set)
+        btn_cancel.pack(pady=(2, 8))
+        t = threading.Thread(target=self._download_worker,
+                             args=(asset_url, new_version, dlg, bar, pct, lbl, cancel_event),
+                             daemon=True)
+        t.start()
+
+    def _init_bar(self, bar, total):
+        try:
+            if total > 0:
+                bar.configure(mode='determinate', maximum=total, value=0)
+            else:
+                bar.configure(mode='indeterminate')
+                bar.start()
+        except Exception:
+            pass
+
+    def _upd_progress(self, bar, pct, v, t):
+        try:
+            bar.configure(value=v)
+            pct.configure(text=f"{v*100//t}%  ({v//1048576}/{t//1048576} MB)")
+        except Exception:
+            pass
+
+    def _stop_bar(self, bar):
+        try:
+            bar.stop()
+        except Exception:
+            pass
+
+    def _set_restart_label(self, lbl):
+        try:
+            lbl.configure(text=_("upd_restart"))
+        except Exception:
+            pass
+
+    def _cancel_update_ui(self, dlg):
+        try:
+            dlg.destroy()
+        except Exception:
+            pass
+        self._set_update_status(_("upd_canceled"), 'secondary')
+
+    def _update_fail_ui(self, dlg):
+        try:
+            dlg.destroy()
+        except Exception:
+            pass
+        self._set_update_status(_("upd_apply_fail_title"), 'warning')
+        messagebox.showerror(_("upd_apply_fail_title"), _("upd_apply_fail_msg"))
+        webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
+
+    def _finish_update(self, dlg, bat):
+        import subprocess, sys
+        try:
+            dlg.destroy()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        subprocess.Popen(bat, shell=True)
+        sys.exit(0)
+
+    def _download_worker(self, asset_url, new_version, dlg, bar, pct, lbl, cancel_event):
+        """后台线程：带进度条下载更新，完成后写 bat 并重启替换。所有 Tk 操作回主线程。"""
+        import tempfile, os, sys, subprocess
+        tmp = tempfile.gettempdir()
+        new_exe = os.path.join(tmp, "realsurf_update.exe")
+        try:
+            # 先尝试 HEAD 拿总大小；拿不到就退化成不确定模式
+            total = 0
+            try:
+                h = requests.head(asset_url, timeout=30, allow_redirects=True)
+                total = int(h.headers.get('Content-Length', 0) or 0)
+            except Exception:
+                total = 0
+            self.root.after(0, lambda: self._init_bar(bar, total))
             logger.info(f"开始下载更新 {new_version}: {asset_url}")
             r = requests.get(asset_url, stream=True, timeout=120)
             r.raise_for_status()
+            written = 0
             with open(new_exe, 'wb') as f:
                 for chunk in r.iter_content(1024 * 1024):
+                    if cancel_event.is_set():
+                        raise _CancelUpdate()
                     if chunk:
                         f.write(chunk)
-            cur = sys.executable          # 当前运行的 exe（如 realsurf.exe）
+                        written += len(chunk)
+                        if total > 0:
+                            v, t = written, total
+                            self.root.after(0, lambda v=v, t=t: self._upd_progress(bar, pct, v, t))
+            if cancel_event.is_set():
+                raise _CancelUpdate()
+            if total > 0:
+                self.root.after(0, lambda: self._upd_progress(bar, pct, total, total))
+            else:
+                self.root.after(0, lambda: self._stop_bar(bar))
+            self.root.after(0, lambda: self._set_restart_label(lbl))
+            cur = sys.executable          # onefile 下指向真实磁盘 exe（已实测）
             bat = os.path.join(tmp, "realsurf_updater.bat")
             with open(bat, 'w', encoding='utf-8') as f:
                 f.write('@echo off\n')
@@ -2000,15 +2138,22 @@ class RealNetSimApp:
                 f.write(f'copy /Y "{new_exe}" "{cur}"\n')
                 f.write(f'del /Q "{new_exe}"\n')
                 f.write(f'start "" "{cur}"\n')
-            subprocess.Popen(bat, shell=True)
-            logger.info("更新已下载，即将重启应用以完成替换")
-            self.root.destroy()
-            sys.exit(0)
+            self.root.after(900, lambda: self._finish_update(dlg, bat))
+        except _CancelUpdate:
+            try:
+                if os.path.exists(new_exe):
+                    os.remove(new_exe)
+            except Exception:
+                pass
+            self.root.after(0, lambda: self._cancel_update_ui(dlg))
         except Exception as e:
             logger.error(f"更新失败: {e}")
-            webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
-            messagebox.showerror(_("upd_apply_fail_title"),
-                _("upd_apply_fail_msg"))
+            self.root.after(0, lambda: self._update_fail_ui(dlg))
+
+
+class _CancelUpdate(Exception):
+    """下载被用户取消时抛出，用于干净退出下载循环。"""
+    pass
 
 
 def main():

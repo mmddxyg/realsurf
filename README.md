@@ -12,6 +12,25 @@
 
 ## 更新日志 / Changelog / Nhật ký thay đổi
 
+**v1.2.1（2026-09-28）** — 更新组件修复
+
+- 🐞 **修复「识别到更新但点击没反应 / 无进度反馈」（用户反馈）**：
+  - 根因①：旧版 `_apply_update` 在调用线程里**同步下载约 42MB 且零进度**，界面长时间卡死，看起来像「点了没反应」。
+  - 根因②：发现新版本后的 `messagebox.askyesno` 在**后台线程**直接弹出，弹窗可能落到「关于」窗口背后，用户点了却看不到确认框。
+  - 修复：下载改为**后台线程**，弹出带百分比 / MB 的**进度条对话框 + 可取消按钮**；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口（关于窗口打开时置于其上方）。下载完成自动写重启脚本并替换重启。
+
+<details><summary>English</summary>
+
+**v1.2.1 (2026-09-28)** — Update component fix. Root cause: the old updater downloaded ~42MB synchronously with no feedback (UI froze, looked unresponsive); and the "new version" yes/no dialog was shown from a background thread (could appear behind the About window). Fix: download now runs in a background thread with a progress dialog (percentage / MB bar + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent window; on completion it writes a restart script and replaces itself.
+
+</details>
+
+<details><summary>Tiếng Việt</summary>
+
+**v1.2.1 (2026-09-28)** — Sửa thành phần cập nhật. Nguyên nhân: bản cũ tải ~42MB đồng bộ không phản hồi (UI đông cứng); hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (thanh % / MB + nút Hủy); mọi hộp thoại cập nhật hiện trên luồng chính qua `root.after(0, …)` với đúng cửa sổ cha; xong thì ghi script khởi động lại và tự thay thế.
+
+</details>
+
 **v1.2.0（2026-09-28）**
 
 - **修复 3 个稳定性 bug（P0）**：① DNS 解析失败现在能被正确识别并**立即剔除失效域名**（旧版 `requests.exceptions.NameResolutionError` 不存在导致该逻辑 100% 失效）；② 子线程不再读取 Tk 控件，消除 `main thread is not in main loop` 崩溃；③ 修复日志无限膨胀（改为 5MB×2 轮转）、旧 Session 泄漏、停止后再开始图表不刷新。
@@ -67,7 +86,7 @@
 ### 使用方法
 
 1. 双击 `realsurf.exe`。
-2. 设置并发线程（默认 16）、访问间隔（默认 10s）。
+2. 设置并发线程（默认 8）、访问间隔（默认 10s）。
 3. 若走做了 TLS 拦截的代理，勾选「跳过证书校验」。
 4. 设置长连接比例（默认 20%）与单次观看时长（默认 45s）。
 5. 点「开始」即可。日志写入同目录 `access_log.txt`。
@@ -99,7 +118,7 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 
 ### 版本
 
-当前版本：`v1.2.0`
+当前版本：`v1.2.1`
 
 [↑ 回到顶部](#拟真冲浪-realsurf) · [切换到 English](#english) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -143,7 +162,7 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 ### Usage
 
 1. Double-click `realsurf.exe`.
-2. Set threads (default 16) and visit interval (default 10s).
+2. Set threads (default 8) and visit interval (default 10s).
 3. If behind a TLS-inspecting proxy, check "Skip Cert Verify".
 4. Set stream ratio (default 20%) and watch duration (default 45s).
 5. Click **Start**. Logs go to `access_log.txt` next to the app.
@@ -164,7 +183,7 @@ Output: `dist/realsurf.exe`.
 
 ### Version
 
-Current version: `v1.2.0`
+Current version: `v1.2.1`
 
 [↑ Back to top](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -208,7 +227,7 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 ### Cách dùng
 
 1. Bấm đúp `realsurf.exe`.
-2. Đặt số luồng (mặc định 16) và khoảng cách truy cập (mặc định 10s).
+2. Đặt số luồng (mặc định 8) và khoảng cách truy cập (mặc định 10s).
 3. Nếu qua proxy có chặn TLS, tích "Bỏ xác thực chứng chỉ".
 4. Đặt tỉ lệ luồng (mặc định 20%) và thời gian xem (mặc định 45s).
 5. Bấm **Bắt đầu**. Nhật ký ghi vào `access_log.txt` cạnh app.
@@ -229,6 +248,6 @@ Kết quả: `dist/realsurf.exe`.
 
 ### Phiên bản
 
-Phiên bản hiện tại: `v1.2.0`
+Phiên bản hiện tại: `v1.2.1`
 
 [↑ Về đầu](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Switch to English](#english)
