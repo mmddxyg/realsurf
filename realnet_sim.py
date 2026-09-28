@@ -49,10 +49,8 @@ from requests.packages.urllib3.util.retry import Retry
 from queue import Queue, Empty
 import traceback
 import webbrowser
-import csv
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
-from datetime import datetime, timezone
 
 # D1：可选 HTTP/2 + HTTP/3 通道（装不上就自动回退 requests，不影响任何功能）
 try:
@@ -136,7 +134,7 @@ I18N = {
         'menu_language': '语言', 'menu_help': '帮助', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}', 'about_lang_label': '界面语言:',
         'lbl_threads': '最大并发线程 (1-20):', 'lbl_interval': '访问间隔 (秒, 5-30):',
-        'chk_verify': '跳过证书校验(代理环境)', 'chk_csv': '记录连接明细(CSV)', 'lbl_stream_prob': '长连接比例(0-50):',
+        'chk_verify': '跳过证书校验(代理环境)', 'lbl_stream_prob': '长连接比例(0-50):',
         'chk_cachebust': '穿透缓存(?num=)',
         'lbl_stream_dur': '单次观看(秒,20-120):', 'btn_start': '开始', 'btn_stop': '停止',
         'lbl_requests': '请求总数: {n}', 'lbl_errors': '错误总数: {n}',
@@ -197,7 +195,7 @@ I18N = {
         'menu_language': 'Language', 'menu_help': 'Help', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': 'About {name}', 'about_ver': 'Version  v{ver}', 'about_lang_label': 'Interface language:',
         'lbl_threads': 'Max Threads (1-20):', 'lbl_interval': 'Visit Interval (s, 5-30):',
-        'chk_verify': 'Skip Cert Verify (proxy)', 'chk_csv': 'Log connections (CSV)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
+        'chk_verify': 'Skip Cert Verify (proxy)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
         'chk_cachebust': 'Bust cache (?num=)',
         'lbl_stream_dur': 'Watch Duration (s, 20-120):', 'btn_start': 'Start', 'btn_stop': 'Stop',
         'lbl_requests': 'Total Requests: {n}', 'lbl_errors': 'Total Errors: {n}',
@@ -258,7 +256,7 @@ I18N = {
         'menu_language': 'Ngôn ngữ', 'menu_help': 'Trợ giúp', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}', 'about_lang_label': 'Ngôn ngữ giao diện:',
         'lbl_threads': 'Số luồng tối đa (1-20):', 'lbl_interval': 'Khoảng cách truy cập (giây, 5-30):',
-        'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'chk_csv': 'Ghi kết nối (CSV)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
+        'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
         'chk_cachebust': 'Phá cache (?num=)',
         'lbl_stream_dur': 'Thời gian xem (giây, 20-120):', 'btn_start': 'Bắt đầu', 'btn_stop': 'Dừng',
         'lbl_requests': 'Tổng yêu cầu: {n}', 'lbl_errors': 'Tổng lỗi: {n}',
@@ -937,7 +935,7 @@ CACHE_BUST = False             # E1：True 时才加 ?num= 强制穿透缓存（
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
@@ -1038,10 +1036,8 @@ class RealNetSimApp:
 
         # UI 变量
         self.verify_var = tk.BooleanVar(value=True)          # 默认开启证书校验
-        self.csv_var = tk.BooleanVar(value=True)             # 默认记录连接明细 CSV
         self.cachebust_var = tk.BooleanVar(value=CACHE_BUST)  # E1：默认关，勾选才加 ?num= 穿透缓存
         self.hx = None                                       # D1：httpx 通道（start_test 里创建）
-        self.conn_lock = threading.Lock()                    # 保护 CSV 写入
         self.network_down = threading.Event()
 
         # 日志队列
@@ -1169,16 +1165,11 @@ class RealNetSimApp:
                                        state="disabled", bootstyle=DANGER)
         self.stop_button.grid(row=0, column=1, padx=5)
 
-        self.csv_check = ttkb.Checkbutton(
-            button_frame, text=_("chk_csv"),
-            variable=self.csv_var, bootstyle="round-toggle")
-        self.csv_check.grid(row=0, column=2, padx=10)
-
         # E1：缓存穿透开关（默认关，避免打穿 ADG 缓存）
         self.cachebust_check = ttkb.Checkbutton(
             button_frame, text=_("chk_cachebust"),
             variable=self.cachebust_var, bootstyle="round-toggle")
-        self.cachebust_check.grid(row=0, column=3, padx=10)
+        self.cachebust_check.grid(row=0, column=2, padx=10)
 
 
         # 状态框架
@@ -1459,76 +1450,6 @@ class RealNetSimApp:
             else:
                 domain_fail_count[url] = domain_fail_count.get(url, 0) + 1
 
-    # ---- 连接明细 CSV（P2：可离线审计样本分布 / ADG 缓存验证） ----
-    CONN_LOG_MAX = 32 * 1024 * 1024     # S1：32MB 分卷，超过则新开带时间戳的文件
-
-    def _open_conn_log(self):
-        try:
-            if getattr(self, 'csv_var', None) and self.csv_var.get():
-                path = 'conn_log.csv'
-                # S1：轮转 —— 超过上限就换名新开，避免单文件无限膨胀
-                if os.path.exists(path) and os.path.getsize(path) > self.CONN_LOG_MAX:
-                    path = 'conn_log_%s.csv' % time.strftime('%Y%m%d-%H%M%S')
-                    logger.info(f"连接明细已达 {self.CONN_LOG_MAX // 1024 // 1024}MB，轮转为 {path}")
-                new_file = (not os.path.exists(path)) or os.path.getsize(path) == 0
-                self.conn_file = open(path, 'a', newline='', encoding='utf-8')
-                self.conn_log_path = path
-                if new_file:
-                    csv.writer(self.conn_file).writerow(
-                        ['ts', 'site', 'host', 'url', 'method', 'status', 'ok', 'ok_2xx',
-                         'ok_3xx', 'bytes_down', 'bytes_up', 'total_ms', 'proto_ver',
-                         'scene_hint', 'tier'])
-                self.conn_file.flush()
-            else:
-                self.conn_file = None
-        except Exception as e:
-            logger.warning(f"打开连接明细 CSV 失败: {e}")
-            self.conn_file = None
-
-    @staticmethod
-    def _status_code(status):
-        """从 status 里取 HTTP 状态码：既支持 int，也支持 'OK (200)' / 'Error (503)'。
-
-        注意别用宽松的 \\d{3} ——'HLS 123MB' 这种会被误判成状态码 123。
-        """
-        if isinstance(status, int):
-            return status
-        s = str(status).strip()
-        if s.isdigit():
-            return int(s)
-        m = re.search(r'\((\d{3})\)', s)
-        return int(m.group(1)) if m else 0
-
-    def _record_conn(self, site, url, status, size, duration, ok,
-                     method='GET', bytes_up=0, proto_ver='', scene_hint='', tier=''):
-        """S4：记录扩展字段。scene_hint ∈ web/interactive/streaming/transfer；
-        注意 group_name / node_name 客户端拿不到，本表仅供本地核对样本分布。"""
-        cf = getattr(self, 'conn_file', None)
-        if cf is None:
-            return
-        try:
-            host = urlparse(url).netloc
-            code = self._status_code(status)
-            with self.conn_lock:
-                csv.writer(cf).writerow([
-                    # S3：UTC ISO8601（带 Z），跨时区/跨设备对齐用
-                    datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
-                    site, host, url, method,
-                    # status 列统一成数字状态码（解析不到才落回原字符串），
-                    # 否则 'OK (200)' 这种文本会让 ok_2xx/ok_3xx 全变 0
-                    code if code else status,
-                    int(bool(ok)),
-                    # S2：ok 收窄为 2xx/3xx 后，再用 ok_2xx / ok_3xx 保留细分
-                    int(200 <= code < 300),
-                    int(300 <= code < 400),
-                    int(size), int(bytes_up), int(duration * 1000),
-                    proto_ver, scene_hint, tier])
-                cf.flush()
-        except Exception:
-            pass
-
-
-
     # ---- D1：统一请求层（httpx http2/h3 ↔ requests h1.1，接口归一） ----
     @staticmethod
     def _is_hx(resp):
@@ -1540,16 +1461,6 @@ class RealNetSimApp:
         if self._is_hx(resp):
             return resp.iter_bytes(size)
         return resp.iter_content(size)
-
-    def _proto_of(self, resp):
-        """取协议版本（HTTP/1.1 / HTTP/2 / HTTP/3）写入 conn_log.proto_ver。"""
-        try:
-            if self._is_hx(resp):
-                v = getattr(resp, 'http_version', '') or ''
-                return f'HTTP/{v}' if v and not v.startswith('HTTP') else (v or 'HTTP/1.1')
-            return f"HTTP/{getattr(resp.raw, 'version', 11) // 10}.{getattr(resp.raw, 'version', 11) % 10}"
-        except Exception:
-            return ''
 
     def _close_resp(self, resp):
         try:
@@ -1640,12 +1551,9 @@ class RealNetSimApp:
         url = random.choice(urls)
         target = min(random.randint(20, 100) * 1024 * 1024, MAX_BULK_BYTES)
         total = 0
-        start_time = time.time()
-        proto = ''
         try:
             r = self._get(url, session, timeout=60)
             try:
-                proto = self._proto_of(r)
                 for chunk in self._iter_chunks(r, 65536):
                     total += len(chunk)
                     if total >= target or stop_event.is_set():
@@ -1654,10 +1562,6 @@ class RealNetSimApp:
                 self._close_resp(r)
             with counter_lock:
                 request_counter += 1
-            self._record_conn(site_name, url, getattr(r, 'status_code', 200),
-                              0, time.time() - start_time,
-                              200 <= getattr(r, 'status_code', 200) < 400,
-                              proto_ver=proto, scene_hint='transfer', tier='bulk')
         except _REQUEST_ERRORS:
             with counter_lock:
                 error_counter += 1
@@ -1675,7 +1579,6 @@ class RealNetSimApp:
                 break
             try:
                 r = self._get(target, session, timeout=8)
-                proto = self._proto_of(r)
                 try:
                     for _c in self._iter_chunks(r, 512):
                         break
@@ -1683,10 +1586,6 @@ class RealNetSimApp:
                     self._close_resp(r)
                 with counter_lock:
                     request_counter += 1
-                self._record_conn(site_name, target, getattr(r, 'status_code', 200),
-                                  0, 0.0,
-                                  200 <= getattr(r, 'status_code', 200) < 400,
-                                  proto_ver=proto, scene_hint='interactive', tier='small')
             except _REQUEST_ERRORS:
                 pass
             time.sleep(random.uniform(0.2, 1.0))
@@ -1879,11 +1778,9 @@ class RealNetSimApp:
         status = 'Idle'
         ok = False
         response = None
-        proto = ''
         try:
             # 流式读取，最多 MAX_BODY_BYTES，避免整页解压占用大量 CPU/内存
             response = self._get(req_url, session, headers=profile, timeout=30)
-            proto = self._proto_of(response)
             try:
                 for chunk in self._iter_chunks(response, 16384):
                     size += len(chunk)
@@ -1943,8 +1840,6 @@ class RealNetSimApp:
                                             'last_time': time.time(), 'size': size}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
-            self._record_conn(site_name, url, status, size, duration, ok,
-                              proto_ver=proto, scene_hint='web', tier='page')
 
 
     # ---- 长连接(视频流)会话：模拟真人看视频 ----
@@ -1963,8 +1858,6 @@ class RealNetSimApp:
         ok = False
         total = 0.0
         status = 'Idle'
-        proto = ''
-        code = 0          # 真实 HTTP 状态码（status 给 UI 看，code 给 conn_log 审计用）
         try:
             profile = dict(random.choice(BROWSER_PROFILES))
             # E2：优先走 HLS/DASH 分片形态（真实流媒体就是 m3u8 + 一堆 .ts/.m4s 分片，
@@ -1972,8 +1865,8 @@ class RealNetSimApp:
             if STREAM_M3U8 and random.random() < HLS_PROB:
                 hls_url = random.choice(STREAM_M3U8)
                 url = hls_url
-                total, code = self._stream_hls(hls_url, session, stream_seconds,
-                                               MAX_STREAM_BYTES)
+                total, _code = self._stream_hls(hls_url, session, stream_seconds,
+                                                MAX_STREAM_BYTES)
                 ok = total > 0
                 status = f"HLS {int(total / 1024 / 1024)}MB" if total > 0 else 'StreamErr'
             elif is_mp4:
@@ -1994,7 +1887,6 @@ class RealNetSimApp:
                     req_headers['Range'] = f'bytes={pos}-{end}'
                     try:
                         r = self._get(url, session, headers=req_headers, timeout=30)
-                        proto = proto or self._proto_of(r)
                         try:
                             for chunk in self._iter_chunks(r, 16384):
                                 total += len(chunk)
@@ -2004,7 +1896,6 @@ class RealNetSimApp:
                             self._close_resp(r)
                         with counter_lock:
                             request_counter += 1
-                        code = getattr(r, 'status_code', 0) or code
                         ok = 200 <= getattr(r, 'status_code', 0) < 400 or ok
                     except _REQUEST_ERRORS as e:
                         with counter_lock:
@@ -2021,7 +1912,6 @@ class RealNetSimApp:
                 profile['Sec-Fetch-Dest'] = 'document'
                 try:
                     r = self._get(url, session, headers=profile, timeout=30)
-                    proto = proto or self._proto_of(r)
                     try:
                         for chunk in self._iter_chunks(r, 16384):
                             total += len(chunk)
@@ -2031,8 +1921,7 @@ class RealNetSimApp:
                         self._close_resp(r)
                     with counter_lock:
                         request_counter += 1
-                    code = getattr(r, 'status_code', 0)
-                    ok = 200 <= code < 400
+                    ok = 200 <= getattr(r, 'status_code', 0) < 400
                 except _REQUEST_ERRORS as e:
                     with counter_lock:
                         error_counter += 1
@@ -2071,8 +1960,6 @@ class RealNetSimApp:
                                        'status': status, 'last_time': time.time(), 'size': total}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
-            self._record_conn(host, url, code if code else status, total, duration, ok,
-                              proto_ver=proto, scene_hint='streaming', tier='stream')
 
 
     # ---- worker 主循环：从队列取站点，访问后按间隔休息 ----
@@ -2209,10 +2096,6 @@ class RealNetSimApp:
                     logger.warning(f"httpx 初始化失败 {kwargs}，回退: {e}")
                     self.hx = None
 
-
-        # P2：打开连接明细 CSV（追加；空文件则写表头）
-        self._open_conn_log()
-
         self.network_down.clear()
         self.task_queue = Queue()
         self.feeder_stop = threading.Event()
@@ -2254,12 +2137,6 @@ class RealNetSimApp:
             except Exception:
                 pass
             self.hx = None
-        if getattr(self, 'conn_file', None) is not None:
-            try:
-                self.conn_file.close()
-            except Exception:
-                pass
-            self.conn_file = None
         logger.info("模拟已停止")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
@@ -2295,7 +2172,6 @@ class RealNetSimApp:
             self.threads_label.configure(text=_("lbl_threads"))
             self.interval_label.configure(text=_("lbl_interval"))
             self.verify_check.configure(text=_("chk_verify"))
-            self.csv_check.configure(text=_("chk_csv"))          # 修复：原来切语言漏刷这个勾选框
             self.cachebust_check.configure(text=_("chk_cachebust"))
             self.stream_prob_label.configure(text=_("lbl_stream_prob"))
             self.stream_dur_label.configure(text=_("lbl_stream_dur"))

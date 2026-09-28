@@ -3,8 +3,6 @@
 
 # 运行/构建产物
 access_log*.txt
-conn_log.csv
-conn_log_*.csv
 realsurf_config.json
 sites_export.json
 *.log

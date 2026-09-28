@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
-"""v1.3.0 优化任务书专项测试（无界面，纯逻辑 + 真网络）。
+"""v1.3.x 专项测试（无界面，纯逻辑 + 真网络）。
 
 覆盖：
   C1 上传三档 / C2 大文件下载 / C3 小包高频交互
   A1 品牌档位权重 + 子域角色加权
   B1 _page_burst 真并发
-  D1 httpx 通道与接口归一（_get/_iter_chunks/_proto_of）
+  D1 httpx 通道与接口归一（_get/_iter_chunks/_close_resp）
   E1 CACHE_BUST 开关
   E2 HLS 分片拉取
-  S1-S4 conn_log 轮转 / ok 语义 / UTC ts / 扩字段
+  R1 无 CSV 残留（v1.3.1 起「记录连接明细(CSV)」功能整体下线）
 用法：python tests/test_v13.py            （跑全部）
       python tests/test_v13.py --offline  （跳过真网络）
 """
-import csv
 import os
+import re
 import sys
 import time
 import threading
 import logging
-import importlib.util
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -28,6 +27,12 @@ import realnet_sim as R  # noqa: E402
 
 OFFLINE = '--offline' in sys.argv
 PASS, FAIL = [], []
+
+# R1：这些标识符在源码里必须彻底消失（top1m.csv 属 A1-3 榜单，白名单）
+RESIDUE_PAT = re.compile(
+    r'csv|conn_log|csv_var|csv_check|chk_csv|_record_conn|_open_conn_log'
+    r'|_proto_of|_status_code|conn_lock|conn_file')
+RESIDUE_ALLOW = ('top1m.csv',)
 
 
 def check(name, cond, detail=''):
@@ -47,17 +52,8 @@ for _n, _v in list(vars(R.RealNetSimApp).items()):
     # 否则 _is_hx 这类 staticmethod 会被当成普通函数而多吃一个 self。
     if _n.startswith('__'):
         continue
-    if _n.startswith('_') or _n in ('visit_one', 'stream_session', 'worker_loop',
-                                    'CONN_LOG_MAX'):
+    if _n.startswith('_') or _n in ('visit_one', 'stream_session', 'worker_loop'):
         setattr(Harness, _n, _v)
-
-
-class _FlagGetter:
-    def __init__(self, v):
-        self._v = v
-
-    def get(self):
-        return self._v
 
 
 class _Mon:
@@ -68,14 +64,11 @@ class _Mon:
         self.n += 1
 
 
-def make_host(csv_on=True, verify=False, hx=False):
+def make_host(verify=False, hx=False):
     h = Harness()
     h.params = {'verify': verify, 'interval': 8.0, 'stream_prob': 1.0, 'stream_dur': 12.0}
     h.network_down = threading.Event()
-    h.conn_lock = threading.Lock()
-    h.csv_var = _FlagGetter(csv_on)
     h.monitor = _Mon()
-    h.conn_file = None
     h.hx = None
     if hx:
         try:
@@ -85,17 +78,29 @@ def make_host(csv_on=True, verify=False, hx=False):
         except Exception as e:
             print(f"  (httpx 初始化失败，改用 requests: {e})")
             h.hx = None
-    h._open_conn_log()
     return h
 
 
-def fresh_conn_log():
-    for f in ('conn_log.csv',):
-        if os.path.exists(f):
-            os.remove(f)
-
-
 # ---------------------------------------------------------------------------
+def test_residue():
+    print("\n== R1 CSV 功能下线残留检查（必须 0 命中）==")
+    src_path = os.path.join(_ROOT, 'realnet_sim.py')
+    with open(src_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    hits = []
+    for i, ln in enumerate(lines, 1):
+        if RESIDUE_PAT.search(ln) and not any(a in ln for a in RESIDUE_ALLOW):
+            hits.append(f'{i}: {ln.rstrip()}')
+    check('R1 源码无 CSV/conn_log 残留', not hits, ' | '.join(hits[:5]))
+    for name in ('_record_conn', '_open_conn_log', '_proto_of', '_status_code',
+                 'CONN_LOG_MAX'):
+        check(f'R1 类属性 {name} 已删除', not hasattr(R.RealNetSimApp, name))
+    check('R1 模块不再导入 csv', not hasattr(R, 'csv'))
+    check('R1 模块不再导入 datetime', not hasattr(R, 'datetime'))
+    for lang in ('zh', 'en', 'vi'):
+        check(f'R1 i18n[{lang}] 已移除 chk_csv', 'chk_csv' not in R.I18N[lang])
+
+
 def test_static():
     print("\n== A1 / E1 / i18n / 版本 静态检查 ==")
     missing = [k for k in R.WEBSITES if k not in R.BRAND_WEIGHT]
@@ -113,7 +118,7 @@ def test_static():
     check('E1 CACHE_BUST 默认关', R.CACHE_BUST is False)
     check('E2 STREAM_M3U8 已配置', len(R.STREAM_M3U8) >= 1, f'{len(R.STREAM_M3U8)} 条')
     check('C2 MAX_BULK_BYTES 已定义', R.MAX_BULK_BYTES == 200 * 1024 * 1024)
-    check('版本号为 1.3.0', R.APP_VERSION == '1.3.0', R.APP_VERSION)
+    check('版本号为 1.3.1', R.APP_VERSION == '1.3.1', R.APP_VERSION)
     for lang in ('zh', 'en', 'vi'):
         d = R.I18N[lang]
         check(f'i18n[{lang}] 新增键齐全',
@@ -144,7 +149,7 @@ def test_update_channel():
     if OFFLINE:
         print('  (offline 跳过)')
         return
-    h = make_host(csv_on=False)
+    h = make_host()
     try:
         tag, notes, html_url, asset_url, size = h._fetch_latest_release_info()
         check('_fetch_latest_release_info 返回 tag', bool(tag), tag)
@@ -155,71 +160,12 @@ def test_update_channel():
         check('更新通道可用', False, f'{type(e).__name__}: {e}')
 
 
-def test_conn_log(csv_on=True):
-    print("\n== S1/S3/S4 conn_log 表头与记录 ==")
-    fresh_conn_log()
-    h = make_host(csv_on=csv_on)
-    if not csv_on:
-        check('S1 csv 关闭时不建文件', not os.path.exists('conn_log.csv'))
-        return
-    h._record_conn('测试站', 'https://www.google.com', 200, 1234, 0.5, True,
-                   method='GET', bytes_up=0, proto_ver='HTTP/2',
-                   scene_hint='web', tier='page')
-    h._record_conn('测试站', 'https://api.x.com', 503, 10, 0.1, False,
-                   method='POST', bytes_up=4096, proto_ver='HTTP/1.1',
-                   scene_hint='transfer', tier='bulk')
-    # visit_one 传的是字符串状态（"OK (200)"），必须也能解析出 2xx，否则 ok=1 却 ok_2xx=0
-    h._record_conn('测试站', 'https://www.youtube.com', 'OK (200)', 999, 0.3, True,
-                   proto_ver='HTTP/2', scene_hint='streaming', tier='stream')
-    h._record_conn('测试站', 'https://x.com', 'HLS 123MB', 888, 0.4, True,
-                   scene_hint='streaming', tier='stream')
-    if h.conn_file:
-        h.conn_file.close()
-    with open('conn_log.csv', 'r', encoding='utf-8') as f:
-        rows = list(csv.reader(f))
-    hdr = rows[0]
-    want = ['ts', 'site', 'host', 'url', 'method', 'status', 'ok', 'ok_2xx', 'ok_3xx',
-            'bytes_down', 'bytes_up', 'total_ms', 'proto_ver', 'scene_hint', 'tier']
-    check('S4 表头为 15 列新字段', hdr == want, hdr)
-    ts = rows[1][0]
-    check('S3 ts 为 UTC ISO8601 且带 Z', ts.endswith('Z') and 'T' in ts, ts)
-    check('S2 ok=1 且 ok_2xx=1 (200)', rows[1][6] == '1' and rows[1][7] == '1', rows[1][:8])
-    check('S2 503 -> ok=0 且 ok_2xx=0 且 ok_3xx=0',
-          rows[2][6] == '0' and rows[2][7] == '0' and rows[2][8] == '0', rows[2][:9])
-    check('S4 bytes_up 写入正确', rows[2][10] == '4096', rows[2][10])
-    check('S4 proto_ver 写入正确', rows[1][12] == 'HTTP/2', rows[1][12])
-    check('S4 scene_hint/tier 写入正确',
-          rows[1][13] == 'web' and rows[2][14] == 'bulk', rows[1][13:])
-    check('S2 字符串状态 "OK (200)" 也能解析出 2xx',
-          rows[3][5] == '200' and rows[3][6] == '1' and rows[3][7] == '1', rows[3][:9])
-    check('S2 "HLS 123MB" 不被误判成状态码 123',
-          rows[4][5] == 'HLS 123MB' and rows[4][7] == '0', rows[4][:9])
-
-
-def test_conn_log_rotate():
-    print("\n== S1 conn_log 轮转 ==")
-    fresh_conn_log()
-    with open('conn_log.csv', 'w', encoding='utf-8') as f:
-        f.write('x' * (R.RealNetSimApp.CONN_LOG_MAX + 100))
-    h = make_host(csv_on=True)
-    rotated = getattr(h, 'conn_log_path', 'conn_log.csv') != 'conn_log.csv'
-    check('S1 超限自动换名分卷', rotated, getattr(h, 'conn_log_path', '?'))
-    if h.conn_file:
-        h.conn_file.close()
-    if rotated:
-        try:
-            os.remove(h.conn_log_path)
-        except OSError:
-            pass
-    fresh_conn_log()
-
-
 def test_scenes():
-    print("\n== C1/C2/C3/B1/E2 真流量（关闭 CSV）==")
+    print("\n== C1/C2/C3/B1/E2 真流量 ==")
     if OFFLINE:
         print('  (offline 跳过)')
         return
-    h = make_host(csv_on=False)
+    h = make_host()
     s = R.requests.Session()
     R.stop_event.clear()
     before = R.request_counter
@@ -277,6 +223,28 @@ def test_scenes():
     s.close()
 
 
+def test_no_conn_log_file():
+    print("\n== R1 实跑后不得生成 conn_log.csv ==")
+    if OFFLINE:
+        print('  (offline 跳过)')
+        return
+    h = make_host()
+    s = R.requests.Session()
+    R.stop_event.clear()
+    for site in list(R.WEBSITES.keys())[:8]:
+        try:
+            h.visit_one(site, s)
+        except Exception:
+            pass
+    try:
+        h.stream_session(s)
+    except Exception:
+        pass
+    s.close()
+    leftovers = [f for f in os.listdir(_ROOT) if f.startswith('conn_log')]
+    check('R1 目录内无 conn_log*.csv', not leftovers, leftovers)
+
+
 def test_httpx_channel():
     print("\n== D1 httpx 通道与接口归一 ==")
     if not R._HAS_HTTPX:
@@ -285,7 +253,7 @@ def test_httpx_channel():
     if OFFLINE:
         print('  (offline 跳过)')
         return
-    h = make_host(csv_on=False, hx=True)
+    h = make_host(hx=True)
     if h.hx is None:
         check('httpx.Client 可创建', False)
         return
@@ -304,8 +272,8 @@ def test_httpx_channel():
         s = R.requests.Session()
         resp = h._get('https://www.cloudflare.com', s, timeout=15)
         check('_get 强制走 httpx 返回 httpx.Response', h._is_hx(resp), type(resp).__name__)
-        proto = h._proto_of(resp)
-        check('_proto_of 解析出 HTTP/x', proto.startswith('HTTP/'), proto)
+        proto = str(getattr(resp, 'http_version', '?'))   # httpx 已返回 "HTTP/2" 形式
+        check('httpx.Response.http_version 可用', 'HTTP/' in proto, proto)
         tot = 0
         for c in h._iter_chunks(resp, 8192):
             tot += len(c)
@@ -325,22 +293,20 @@ def test_httpx_channel():
 def test_cache_bust():
     print("\n== E1 CACHE_BUST 开关生效 ==")
     check('默认关闭时 req_url 不带 ?num=', R.CACHE_BUST is False)
-    h = make_host(csv_on=False)
     check('UI 变量存在且默认 False',
           hasattr(R.RealNetSimApp, '_upload') and R.CACHE_BUST is False)
 
 
 def main():
     logging.basicConfig(level=logging.CRITICAL)
-    print("RealSurf v1.3.0 优化任务书专项测试" + ("  [OFFLINE]" if OFFLINE else ""))
+    print("RealSurf v1.3.1 专项测试" + ("  [OFFLINE]" if OFFLINE else ""))
+    test_residue()
     test_static()
     test_feeder_weights()
     test_update_channel()
-    test_conn_log(True)
-    test_conn_log(False)
-    test_conn_log_rotate()
     test_cache_bust()
     test_scenes()
+    test_no_conn_log_file()
     test_httpx_channel()
     print("\n" + "=" * 62)
     print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
