@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""端到端 GUI 测试：假 GitHub API 报告新版本 + 限速本地 asset 服务，
-走真实 check_update(manual=True) 路径，自动点「是」，截图验证进度条对话框真的出现。
+"""端到端 GUI 测试：走真实 check_update(manual=True) → 进度条对话框 → 截图验证。
+用本地限速 asset 服务模拟 30MB 下载，并 patch _fetch_latest_release_info 返回「有 v9.9.9」。
 只在有桌面会话的机器上跑（本机 = 用户 Windows 桌面）。
 """
 import os
-import json
 import time
 import threading
 import tempfile
@@ -21,7 +20,7 @@ import realnet_sim as R
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 SHOT = os.path.join(ROOT_DIR, "gui_update_shot.png")
 
-# ---- 1) 待下载文件（30MB）+ 限速 HTTP 服务（便于截到中间进度） ----
+# ---- 待下载文件（30MB）+ 限速 HTTP 服务（便于截到中间进度） ----
 serve = tempfile.mkdtemp()
 with open(os.path.join(serve, "realsurf.exe"), "wb") as f:
     for _ in range(30):
@@ -48,34 +47,10 @@ asset_port = asset_srv.server_address[1]
 threading.Thread(target=asset_srv.serve_forever, daemon=True).start()
 asset_url = f"http://127.0.0.1:{asset_port}/realsurf.exe"
 
-# ---- 2) 假 GitHub API：返回「有 v9.9.9」 ----
-RELEASE = {
-    "tag_name": "v9.9.9",
-    "body": "fake release for GUI test",
-    "html_url": "http://example.invalid",
-    "assets": [{"name": "realsurf.exe", "browser_download_url": asset_url,
-                "size": 30 * 1024 * 1024}],
-}
+# 让本地版本「低于」远端，触发更新流程
+R.APP_VERSION = "1.0.0"
 
-
-class ApiHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = json.dumps(RELEASE).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *a):
-        pass
-
-
-api_srv = socketserver.TCPServer(("127.0.0.1", 0), ApiHandler)
-R.GITHUB_API = f"http://127.0.0.1:{api_srv.server_address[1]}"
-threading.Thread(target=api_srv.serve_forever, daemon=True).start()
-
-# ---- 3) 自动点「是」 ----
+# ---- 自动点「是」 ----
 R.messagebox.askyesno = lambda *a, **k: True
 
 root = ttkb.Window(themename="litera")
@@ -91,6 +66,12 @@ class TestApp(R.RealNetSimApp):
         self.update_status_label = None
         self.finished = False
         self.failed = False
+        self._cb_error_shown = False
+
+    # 直接给出「有更新」，跳过网络检查（检查逻辑已单独实测）
+    def _fetch_latest_release_info(self):
+        return ("v9.9.9", "fake notes", "http://example.invalid",
+                asset_url, 30 * 1024 * 1024)
 
     def _finish_update(self, dlg, bat):
         self.finished = True
