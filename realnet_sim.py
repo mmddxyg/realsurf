@@ -3,7 +3,7 @@
 拟真冲浪 RealSurf  (RealNet Simulator)
 ============================================
 用途：模拟真人电脑对主流站点（含大量子域名）的访问行为，
-      用于检验 OpenClash / 代理链路连通性、保活与网速监测。
+      用于检验 OpenClash / 代理链路连通性、保活与真实访问监测。
 
 相比旧版「网络压力测试工具」的改进：
   1. 真实浏览器模拟：使用完整的浏览器请求头档案（Chrome / Edge / Firefox，
@@ -40,6 +40,7 @@ from ttkbootstrap.constants import *
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from concurrent.futures import ThreadPoolExecutor
 import random
@@ -157,8 +158,11 @@ I18N = {
         'init_fail': '初始化失败: {e}\n请检查 access_log.txt',
         'err_threads': '并发线程数必须在 1-20 之间，使用默认值 8',
         'exit_title': '退出', 'exit_confirm': '确定要退出吗？',
-        'chart_title': '各站点实时网速与状态', 'chart_title_idle': '各站点实时网速与状态（暂无活动）',
-        'chart_ylabel': '网速 (KB/s)',
+        # M1：图表指标由「网速 KB/s」改为「真实访问次数」（大量站点网速恒为 0，看不出东西）
+        'chart_title': '各站点真实访问（柱高=访问次数，标注=平均耗时 ms）',
+        'chart_title_idle': '各站点真实访问（暂无活动）',
+        'chart_ylabel': '访问次数',
+        'leg_ok': '全部成功', 'leg_part': '部分失败', 'leg_fail': '全部失败',
         'about_intro': '模拟真人上网行为：短请求浏览 + 长连接视频流 + 上传/大文件下载\n'
                        '+ 小包高频交互，用于 OpenClash / 代理链路连通性验证、Smart 策略组\n'
                        '训练数据采集，以及 AdGuardHome(ADG) DNS 缓存预热与命中测试。\n\n'
@@ -218,8 +222,10 @@ I18N = {
         'init_fail': 'Init failed: {e}\nCheck access_log.txt',
         'err_threads': 'Thread count must be 1-20; using default 8',
         'exit_title': 'Exit', 'exit_confirm': 'Exit the application?',
-        'chart_title': 'Real-time Speed & Status per Site', 'chart_title_idle': 'Real-time Speed & Status (no activity yet)',
-        'chart_ylabel': 'Speed (KB/s)',
+        'chart_title': 'Real Visits per Site (bar = visits, label = avg latency ms)',
+        'chart_title_idle': 'Real Visits per Site (no activity yet)',
+        'chart_ylabel': 'Visits',
+        'leg_ok': 'all OK', 'leg_part': 'partly failed', 'leg_fail': 'all failed',
         'about_intro': 'Simulates realistic human traffic: short browsing + long video streams\n'
                        '+ uploads / bulk downloads + high-frequency small packets.\n'
                        'For OpenClash / proxy link checks, Smart group training data\n'
@@ -279,8 +285,10 @@ I18N = {
         'init_fail': 'Lỗi khởi tạo: {e}\nKiểm tra access_log.txt',
         'err_threads': 'Số luồng phải từ 1-20; dùng mặc định 8',
         'exit_title': 'Thoát', 'exit_confirm': 'Thoát ứng dụng?',
-        'chart_title': 'Tốc độ & trạng thái theo trang', 'chart_title_idle': 'Tốc độ & trạng thái (chưa có hoạt động)',
-        'chart_ylabel': 'Tốc độ (KB/s)',
+        'chart_title': 'Lượt truy cập thật theo trang (cột = số lần, nhãn = độ trễ TB ms)',
+        'chart_title_idle': 'Lượt truy cập thật theo trang (chưa có hoạt động)',
+        'chart_ylabel': 'Số lượt truy cập',
+        'leg_ok': 'thành công hết', 'leg_part': 'lỗi một phần', 'leg_fail': 'lỗi toàn bộ',
         'about_intro': 'Mô phỏng lướt web thật của con người: truy cập ngắn + luồng video dài.\n'
                        'Dùng để kiểm tra OpenClash / proxy, thu thập dữ liệu huấn luyện\n'
                        'nhóm Smart, và làm nóng / kiểm tra cache DNS của AdGuardHome (ADG).\n\n'
@@ -767,6 +775,101 @@ WEBSITES = {
         "https://www.toutiao.com", "https://www.toutiao.com/login", "https://www.toutiao.com/category",
         "https://www.toutiao.com/video",
     ],
+    # ---- M3 补充批次（2026-09-29 逐个真机实测可达后才加入；死链已剔除）----
+    # 实测方法：本机同网络下逐个 GET，状态码 <500 视为存活。
+    # 淘汰：steamstatic.com（代理拒绝）、www.iesdouyin.com（SSL 握手失败）、www.adobe.com（读超时）。
+    "OpenAI": [
+        "https://openai.com", "https://chatgpt.com", "https://platform.openai.com",
+        "https://api.openai.com", "https://help.openai.com", "https://auth.openai.com",
+    ],
+    "Claude": [
+        "https://www.anthropic.com", "https://claude.ai", "https://console.anthropic.com",
+        "https://docs.anthropic.com", "https://support.anthropic.com",
+    ],
+    "Steam": [
+        "https://store.steampowered.com", "https://steamcommunity.com", "https://api.steampowered.com",
+        "https://help.steampowered.com", "https://cdn.steamstatic.com",
+    ],
+    "Tencent": [
+        "https://www.qq.com", "https://news.qq.com", "https://im.qq.com", "https://v.qq.com",
+        "https://cloud.tencent.com", "https://www.tencent.com", "https://weixin.qq.com",
+        "https://mp.weixin.qq.com",
+    ],
+    "Taobao": [
+        "https://www.taobao.com", "https://www.tmall.com", "https://www.alibaba.com",
+        "https://www.aliexpress.com", "https://login.taobao.com", "https://world.taobao.com",
+    ],
+    "JD": [
+        "https://www.jd.com", "https://item.jd.com", "https://search.jd.com", "https://help.jd.com",
+        "https://m.jd.com",
+    ],
+    "NetEase": [
+        "https://www.163.com", "https://news.163.com", "https://music.163.com", "https://mail.163.com",
+        "https://www.126.com", "https://game.163.com",
+    ],
+    "Douyin": [
+        "https://www.douyin.com", "https://www.douyin.com/discover",
+    ],
+    "Xiaohongshu": [
+        "https://www.xiaohongshu.com", "https://www.xiaohongshu.com/explore",
+    ],
+    "Huawei": [
+        "https://www.huawei.com", "https://consumer.huawei.com", "https://developer.huawei.com",
+        "https://e.huawei.com", "https://www.huawei.com/cn/",
+    ],
+    "NVIDIA": [
+        "https://www.nvidia.com", "https://www.nvidia.cn", "https://developer.nvidia.com",
+        "https://www.geforce.com",
+    ],
+    "Adobe": [
+        "https://account.adobe.com", "https://developer.adobe.com", "https://helpx.adobe.com",
+    ],
+    "Zoom": [
+        "https://zoom.us", "https://www.zoom.us", "https://support.zoom.us", "https://explore.zoom.us",
+        "https://marketplace.zoom.us",
+    ],
+    "Slack": [
+        "https://slack.com", "https://api.slack.com", "https://app.slack.com", "https://slack.com/help",
+        "https://status.slack.com",
+    ],
+    "Notion": [
+        "https://www.notion.so", "https://www.notion.com", "https://www.notion.so/product",
+        "https://www.notion.so/help",
+    ],
+    "Figma": [
+        "https://www.figma.com", "https://help.figma.com", "https://www.figma.com/community",
+    ],
+    "Yahoo": [
+        "https://www.yahoo.com", "https://news.yahoo.com", "https://mail.yahoo.com",
+        "https://finance.yahoo.com", "https://sports.yahoo.com", "https://www.yahoo.co.jp",
+    ],
+    "IMDb": [
+        "https://www.imdb.com", "https://m.imdb.com", "https://developer.imdb.com",
+    ],
+    "NYTimes": [
+        "https://www.nytimes.com", "https://help.nytimes.com", "https://myaccount.nytimes.com",
+        "https://www.nytimes.com/section/technology",
+    ],
+    "PayPal": [
+        "https://www.paypal.com", "https://developer.paypal.com", "https://www.paypal.com/signin",
+        "https://newsroom.paypal-corp.com",
+    ],
+    "Airbnb": [
+        "https://www.airbnb.com", "https://www.airbnb.cn", "https://news.airbnb.com",
+    ],
+    "Booking": [
+        "https://www.booking.com", "https://secure.booking.com", "https://partner.booking.com",
+    ],
+    "Stripe": [
+        "https://stripe.com", "https://dashboard.stripe.com", "https://docs.stripe.com",
+        "https://support.stripe.com",
+    ],
+    "DuckDuckGo": [
+        "https://duckduckgo.com", "https://help.duckduckgo.com", "https://spreadprivacy.com",
+    ],
+    "Speedtest": [
+        "https://www.speedtest.net", "https://www.ookla.com",
+    ],
 }
 
 # 长连接(视频流)目标：模拟真人"看视频"行为，给 Smart 组提供
@@ -822,6 +925,12 @@ BRAND_WEIGHT = {
     "WeTV": 30, "Dropbox": 30, "Vimeo": 30, "Hulu": 30, "RockstarGames": 30,
     "NexusMods": 30, "HumbleBundle": 30, "Itch": 30, "GOG": 30, "TGC": 30,
     "Quora": 10, "Dailymotion": 10, "SoundCloud": 10,
+    # ---- M3 补充批次（2026-09-29 新增，权重按热度分档，保证头尾比仍 >=30:1）----
+    "OpenAI": 300, "Tencent": 300, "Taobao": 300, "Steam": 300, "Yahoo": 300, "Douyin": 300,
+    "Claude": 100, "JD": 100, "NetEase": 100, "Xiaohongshu": 100, "Huawei": 100,
+    "NVIDIA": 100, "Adobe": 100, "Zoom": 100, "IMDb": 100, "NYTimes": 100, "PayPal": 100,
+    "Slack": 30, "Notion": 30, "Figma": 30, "Airbnb": 30, "Booking": 30,
+    "Stripe": 30, "DuckDuckGo": 30, "Speedtest": 30,
 }
 BRAND_WEIGHT_DEFAULT = 30      # 未列品牌兜底权重（原为 1，会让未列品牌被饿死）
 
@@ -912,8 +1021,38 @@ error_counter = 0
 counter_lock = threading.Lock()
 stop_event = threading.Event()
 executor = None
-domain_status = {site: {'speed': 0, 'status': 'Idle', 'last_time': 0, 'size': 0} for site in WEBSITES}
 status_lock = threading.Lock()
+
+
+def _blank_site_stat():
+    """单个站点的「真实访问」统计单元。
+
+    图表指标从「网速 KB/s」换成「访问次数 + 平均耗时」的原因：
+    大量站点只回 204/302、命中 ADG/DNS 缓存，或本身就没有可下载的 body，
+    读到的字节数恒为 0 → 网速恒为 0 KB/s，柱状图一片空白，完全看不出谁在被访问。
+    而访问次数只要请求真的发出去了就一定 ≥ 1，才是「有没有在真实访问」的直接证据。
+    另外顺带记成功率（ok/visits）与累计耗时（ms），用来标注站点质量。
+    """
+    return {'visits': 0, 'ok': 0, 'ms': 0.0, 'size': 0.0, 'speed': 0.0,
+            'status': 'Idle', 'last_time': 0.0}
+
+
+def bump_site_stat(site, ok, duration, size, status):
+    """把一次访问累加进站点统计（整轮累计，非瞬时值）。线程安全。"""
+    ms = duration * 1000.0 if duration > 0 else 0.0
+    with status_lock:
+        st = domain_status.setdefault(site, _blank_site_stat())
+        st['visits'] += 1
+        if ok:
+            st['ok'] += 1
+        st['ms'] += ms
+        st['size'] += size
+        st['speed'] = size / duration if duration > 0 else 0.0
+        st['status'] = status
+        st['last_time'] = time.time()
+
+
+domain_status = {site: _blank_site_stat() for site in WEBSITES}
 log_queue = Queue()
 domain_fail_count = {}            # 每域名连续失败计数，用于自动剔除持续失效域名
 sites_lock = threading.Lock()     # 保护 WEBSITES / domain_fail_count 的并发读写
@@ -930,12 +1069,13 @@ BULK_DL_PROB = 0.05            # C2：大文件下载场景占比
 INTERACTIVE_PROB = 0.12        # C3：小包高频交互场景占比
 HTTPX_PROB = 0.70              # D1：走 httpx(h2/h3) 的概率，其余走 requests(h1.1)
 CACHE_BUST = False             # E1：True 时才加 ?num= 强制穿透缓存（默认关，避免打穿 ADG 缓存）
+CHART_MAX_SITES = 24           # M1：图表最多画多少个站点（按访问次数取头部，再多就糊成一片）
 
 # ---------------------------------------------------------------------------
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
@@ -1327,7 +1467,7 @@ class RealNetSimApp:
                 WEBSITES[site_name].extend(domain_list)
             else:
                 WEBSITES[site_name] = domain_list
-                domain_status[site_name] = {'speed': 0, 'status': 'Idle', 'last_time': 0, 'size': 0}
+                domain_status[site_name] = _blank_site_stat()
             logger.info(f"添加网站: {site_name}, 域名: {domain_list}")
             self.site_name_entry.delete(0, tk.END)
             self.domain_list_entry.delete(0, tk.END)
@@ -1359,25 +1499,30 @@ class RealNetSimApp:
             pass
 
     @staticmethod
-    def _status_color(status):
-        if status.startswith("OK"):
-            return '#2e7d32'          # 绿
-        if status in ('Idle',):
-            return '#9e9e9e'          # 灰
-        if status.startswith('Error') or status.startswith('E') or status.startswith('SSL') \
-                or status.startswith('DNS'):
-            return '#c62828'          # 红
-        return '#ef6c00'              # 橙（Timeout 等）
+    def _chart_color(stat):
+        """按**成功率**着色（不是按状态字符串）：
+        全成功=绿 / 部分失败=橙 / 全失败=红 / 未访问=灰。"""
+        visits = stat.get('visits', 0)
+        if visits <= 0:
+            return '#9e9e9e'
+        rate = stat.get('ok', 0) / visits
+        if rate >= 0.999:
+            return '#2e7d32'          # 绿：全部成功
+        if rate <= 0.001:
+            return '#c62828'          # 红：全部失败
+        return '#ef6c00'              # 橙：部分失败
 
     def update_chart(self):
         try:
             with status_lock:
-                # 过滤掉从未被访问过的 Idle 站点，避免图表被一堆 0 高度灰条刷屏
-                items = [(s, domain_status[s]) for s in domain_status
-                         if domain_status[s]['status'] != 'Idle']
-                sites = [s for s, _ in items]
-                speeds = [d['speed'] for _, d in items]
-                statuses = [d['status'] for _, d in items]
+                # M1：只画「真实访问过」的站点（visits>0），Idle 的 0 次站点不画
+                all_items = [(s, dict(domain_status[s])) for s in domain_status
+                             if domain_status[s].get('visits', 0) > 0]
+            total_sites = len(all_items)
+            # 访问次数多的排前面，超出上限只画头部，避免几十根柱子糊成一片
+            all_items.sort(key=lambda kv: kv[1]['visits'], reverse=True)
+            items = all_items[:CHART_MAX_SITES]
+            sites = [s for s, _ in items]
 
             if not sites:
                 self.ax.clear()
@@ -1388,18 +1533,44 @@ class RealNetSimApp:
                     self.root.after(8000, self.update_chart)
                 return
 
-            self.ax.clear()
-            colors = [self._status_color(st) for st in statuses]
-            bars = self.ax.bar(sites, speeds, color=colors)
-            self.ax.set_ylabel(_('chart_ylabel'), fontproperties=CHART_FONT)
-            self.ax.set_title(_('chart_title'), fontproperties=CHART_FONT)
-            self.ax.tick_params(axis='x', labelrotation=45, labelsize=7)
+            visits = [d['visits'] for _, d in items]
+            colors = [self._chart_color(d) for _, d in items]
+            labels = []
+            # 注意：这里**不能用 `_` 当循环变量**——普通 for（非推导式）会把模块级的
+            # 翻译函数 `_()` 覆盖成函数局部变量，后面 `_('chart_ylabel')` 直接 TypeError。
+            for _name, d in items:
+                v = d['visits']
+                if d.get('ok', 0) < v:
+                    # 有失败就标状态（Timeout / DNS Error / SSL Error…），一眼看出坏在哪
+                    labels.append(d.get('status', ''))
+                else:
+                    labels.append(f"{d['ms'] / v:.0f}ms")   # 全成功则标平均耗时
 
-            for bar, status in zip(bars, statuses):
-                height = bar.get_height()
-                self.ax.text(bar.get_x() + bar.get_width() / 2, height, status,
+            self.ax.clear()
+            bars = self.ax.bar(sites, visits, color=colors)
+            self.ax.set_ylabel(_('chart_ylabel'), fontproperties=CHART_FONT)
+            title = _('chart_title')
+            if total_sites > CHART_MAX_SITES:
+                title += f"  ·  Top {CHART_MAX_SITES}/{total_sites}"
+            self.ax.set_title(title, fontproperties=CHART_FONT)
+            self.ax.tick_params(axis='x', labelrotation=45, labelsize=7)
+            self.ax.set_ylim(0, max(visits) * 1.15)   # 顶部留余量，柱顶标注不贴边
+            for t in self.ax.get_xticklabels():
+                t.set_ha('right')       # 45° 站点名右对齐，避免被画布底边裁掉
+
+            for bar, lab in zip(bars, labels):
+                self.ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(), lab,
                              ha='center', va='bottom', rotation=45, fontsize=6)
+
+            handles = [Patch(color='#2e7d32', label=_('leg_ok')),
+                       Patch(color='#ef6c00', label=_('leg_part')),
+                       Patch(color='#c62828', label=_('leg_fail'))]
+            self.ax.legend(handles=handles, loc='upper right', fontsize=6)
             self.fig.tight_layout()
+            # 45° 旋转的站点名较长，tight_layout 有时仍留不够底部空间会把名字裁掉；
+            # 只往上加、绝不压回去（先取 tight_layout 算出的值，比 0.30 小才提高）
+            if self.ax.get_position().y0 < 0.30:
+                self.fig.subplots_adjust(bottom=0.30)
             self.canvas.draw()
             if not stop_event.is_set():
                 self.root.after(8000, self.update_chart)
@@ -1834,10 +2005,8 @@ class RealNetSimApp:
             status = 'Error'
         finally:
             duration = time.time() - start_time
-            speed = size / duration if duration > 0 else 0
-            with status_lock:
-                domain_status[site_name] = {'speed': speed, 'status': status,
-                                            'last_time': time.time(), 'size': size}
+            # M1：记「真实访问」——次数/成功率/平均耗时（网速不再作为图表指标，但仍保留）
+            bump_site_stat(site_name, ok, duration, size, status)
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
 
@@ -1955,9 +2124,7 @@ class RealNetSimApp:
                 status = "WATCH"
         finally:
             duration = time.time() - start_time
-            with status_lock:
-                domain_status[host] = {'speed': total / duration if duration > 0 else 0,
-                                       'status': status, 'last_time': time.time(), 'size': total}
+            bump_site_stat(host, ok, duration, total, status)
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
 
@@ -2053,7 +2220,7 @@ class RealNetSimApp:
             error_counter = 0
         with status_lock:
             for site in WEBSITES:
-                domain_status[site] = {'speed': 0, 'status': 'Idle', 'last_time': 0, 'size': 0}
+                domain_status[site] = _blank_site_stat()
             for k in list(domain_status.keys()):
                 if k.startswith('视频:'):
                     del domain_status[k]

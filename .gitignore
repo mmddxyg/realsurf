@@ -8,8 +8,10 @@ sites_export.json
 *.log
 build/
 build2/
+build_v*/
 dist/
 dist2/
+dist_v*/
 __pycache__/
 *.pyc
 .venv/

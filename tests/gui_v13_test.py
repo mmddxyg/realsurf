@@ -58,7 +58,7 @@ lang_texts = {}
 def step1():
     print("== 1. 中文主窗口 ==")
     shot(root, '01_zh_main')
-    rec('主窗口标题含版本号 v1.3.1', 'v1.3.1' in root.title(), root.title())
+    rec('主窗口标题含版本号 v1.3.2', 'v1.3.2' in root.title(), root.title())
     rec('中文界面：开始按钮文案', app.start_button.cget('text') == '开始', app.start_button.cget('text'))
     rec('E1 穿透缓存勾选框存在(中文)', app.cachebust_check.cget('text') == '穿透缓存(?num=)',
         app.cachebust_check.cget('text'))
@@ -159,6 +159,31 @@ def step7():
     shot(root, '05_running')
     n1 = R.request_counter
     rec('运行中确实产生请求', n1 > 0, f'request_counter={n1}')
+
+    # M1：图表指标回归 —— 必须是「真实访问次数」，不能再是网速 KB/s
+    try:
+        app.update_chart()
+        root.update()
+    except Exception as e:
+        rec('update_chart() 未抛异常', False, f'{type(e).__name__}: {e}')
+    ylab = app.ax.get_ylabel()
+    rec('图表 y 轴 = 访问次数（不再是网速）', ylab == R.I18N['zh']['chart_ylabel'], repr(ylab))
+    rec('图表标题不再含 KB/s', 'KB/s' not in app.ax.get_title(), app.ax.get_title())
+    bars = app.ax.patches
+    heights = [b.get_height() for b in bars]
+    rec('图表有柱子', len(bars) > 0, f'{len(bars)} 根')
+    rec('柱子高度 > 0（网速版这里全是 0）', bool(heights) and max(heights) > 0,
+        f'max={max(heights) if heights else 0}')
+    rec('图例已渲染（成功/部分/全败）', app.ax.get_legend() is not None)
+    with R.status_lock:
+        visited = {k: v['visits'] for k, v in R.domain_status.items() if v['visits'] > 0}
+    rec('有站点记到真实访问次数', bool(visited),
+        f'{len(visited)} 个站点, 前 3: {sorted(visited.items(), key=lambda kv: -kv[1])[:3]}')
+    rec('柱子数 = 有访问的站点数（未访问不画）',
+        len(bars) == min(len(visited), R.CHART_MAX_SITES),
+        f'bars={len(bars)} visited={len(visited)} cap={R.CHART_MAX_SITES}')
+    shot(root, '09_chart_visits')
+
     app.stop_test()
     root.update()
     shot(root, '06_stopped')

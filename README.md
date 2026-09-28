@@ -12,6 +12,45 @@
 
 ## 更新日志 / Changelog / Nhật ký thay đổi
 
+**v1.3.2（2026-09-29）** — 图表换指标（网速 → 真实访问次数）+ 域名池扩容
+
+- 📊 **柱状图指标从「网速 KB/s」改为「真实访问次数」**：原指标有个硬伤——大量站点只回 204/302、命中 ADG/DNS 缓存，或本身就没有可下载的 body，读到的字节数恒为 0，**网速恒为 0 KB/s**，图表看上去一片空白，完全反映不出「到底有没有在访问」。现改为：
+  - **柱高 = 访问次数**（整轮累计）——只要请求真的发出去了就 ≥ 1，是"真实访问"的直接证据；
+  - **柱顶标注 = 平均响应耗时 ms**（该站有失败时改标失败状态，如 `Timeout` / `DNS Error`）；
+  - **配色改为按成功率**：🟢 全成功 / 🟠 部分失败 / 🔴 全失败（原来是按状态字符串上色），右上角带图例；
+  - **按访问次数排序取 Top 24**，超出时标题显示 `Top 24/总数`，避免几十根柱子糊成一片。
+- 🌐 **域名池扩容：54 → 79 个品牌，域名 543 → 649 条（新增 106 条）**。新增一批**逐个真机实测可达**后才加入的站点：OpenAI / ChatGPT、Claude、Steam、腾讯 QQ·微信、淘宝天猫·阿里、京东、网易、抖音、小红书、华为、NVIDIA、Adobe、Zoom、Slack、Notion、Figma、Yahoo、IMDb、纽约时报、PayPal、Airbnb、Booking、Stripe、DuckDuckGo、Speedtest。
+  > 实测淘汰 3 条死链：`steamstatic.com`（代理拒绝）、`www.iesdouyin.com`（SSL 握手失败）、`www.adobe.com`（读超时）——加进去只会被自动剔除并刷日志，所以不放。
+- 🐞 **修复**：站点统计原来每次访问**整体覆盖**（只留最后一次的状态与网速），新站点/新品牌的成功率无从统计；现改为**整轮累加**（`visits` / `ok` / `ms` / `size`），并统一走 `bump_site_stat()`，顺带消除了 `domain_status` 三处重复的字面量初始化。
+
+<details><summary>English</summary>
+
+**v1.3.2 (2026-09-29)** — Chart metric switched (speed → real visits) + domain pool expanded.
+
+- **The bar chart no longer plots KB/s.** Many sites only return 204/302, are served from the ADG/DNS cache, or simply have no downloadable body — the byte count is always 0, so **speed is always 0 KB/s** and the chart looked empty. Now:
+  - **bar height = visit count** (cumulative per run) — a request that actually went out is always ≥ 1, which is the direct evidence of real traffic;
+  - **bar label = average latency in ms** (switches to the failure status, e.g. `Timeout` / `DNS Error`, when that site has failures);
+  - **colour now reflects the success rate**: 🟢 all OK / 🟠 partly failed / 🔴 all failed, with a legend in the corner;
+  - sorted by visits, **top 24 only**, with `Top 24/total` in the title when truncated.
+- **Domain pool expanded: 54 → 79 brands, 543 → 649 URLs (+106).** Every new site was **probed on the real network first** (OpenAI/ChatGPT, Claude, Steam, Tencent QQ/WeChat, Taobao·Ali, JD, NetEase, Douyin, Xiaohongshu, Huawei, NVIDIA, Adobe, Zoom, Slack, Notion, Figma, Yahoo, IMDb, NYTimes, PayPal, Airbnb, Booking, Stripe, DuckDuckGo, Speedtest). Three dead ones were rejected: `steamstatic.com` (proxy refused), `www.iesdouyin.com` (SSL handshake failure), `www.adobe.com` (read timeout).
+- **Fix**: per-site stats used to be **overwritten** on every visit (only the last status/speed survived), making success rates impossible to compute; now they **accumulate over the run** (`visits` / `ok` / `ms` / `size`) through a single `bump_site_stat()`, which also removed three duplicated literal initialisers.
+
+</details>
+
+<details><summary>Tiếng Việt</summary>
+
+**v1.3.2 (2026-09-29)** — Đổi chỉ số biểu đồ (tốc độ → lượt truy cập thật) + mở rộng danh sách tên miền.
+
+- **Biểu đồ cột không còn vẽ KB/s.** Nhiều trang chỉ trả 204/302, được phục vụ từ cache ADG/DNS, hoặc không có nội dung tải về — số byte luôn bằng 0 nên **tốc độ luôn là 0 KB/s** và biểu đồ trông trống rỗng. Nay:
+  - **chiều cao cột = số lượt truy cập** (tích lũy trong cả lượt chạy) — yêu cầu đã thực sự gửi đi thì luôn ≥ 1, đây là bằng chứng trực tiếp của lưu lượng thật;
+  - **nhãn trên cột = độ trễ trung bình (ms)** (đổi thành trạng thái lỗi như `Timeout` / `DNS Error` nếu trang đó có lỗi);
+  - **màu theo tỉ lệ thành công**: 🟢 thành công hết / 🟠 lỗi một phần / 🔴 lỗi toàn bộ, có chú giải ở góc;
+  - sắp xếp theo số lượt, **chỉ vẽ top 24**, tiêu đề hiển thị `Top 24/tổng` khi bị cắt.
+- **Mở rộng danh sách: 54 → 79 thương hiệu, 543 → 649 URL (+106).** Mọi trang mới đều được **kiểm tra thật trên mạng trước** rồi mới thêm. Ba tên miền chết đã bị loại: `steamstatic.com`, `www.iesdouyin.com`, `www.adobe.com`.
+- **Sửa lỗi**: thống kê theo trang trước đây bị **ghi đè** mỗi lần truy cập (chỉ giữ trạng thái/tốc độ cuối), khiến không thể tính tỉ lệ thành công; nay **tích lũy cả lượt chạy** qua một hàm `bump_site_stat()` duy nhất.
+
+</details>
+
 **v1.3.1（2026-09-28）** — 移除「记录连接明细(CSV)」功能
 
 - 🗑️ **整体下线 CSV 记录功能**：删除界面上的「记录连接明细(CSV)」勾选框，以及背后的全部实现——`conn_log.csv` / 分卷轮转 / 15 列字段 / `_record_conn` / `_open_conn_log` / `_proto_of` / `_status_code` / `conn_lock` / `conn_file` 状态、`csv` 与 `datetime` 导入一并清除。理由：该表客户端拿不到 `group_name` / `node_name`，无法替代内核打标；训练样本的核对已在 mihomo 日志侧完成，继续在客户端落盘 32MB×N 的 CSV 属于无效负担。
@@ -153,7 +192,10 @@
   未安装 httpx 时自动回退，功能不受影响。
 - **断联自动恢复**：内置网络监控线程，全部失败即判定断联、暂停发流并探测，恢复后自动续上。
 - **失效域名自动剔除**：连续失败达阈值（DNS 错误立即）的域名自动从列表移除。
-- **站点编辑器**：图形化增删站点、导出 JSON；柱状图实时展示各站点网速与状态（不显示未访问的 Idle 站点）。
+- **站点编辑器**：图形化增删站点、导出 JSON；柱状图实时展示**各站点真实访问次数**（柱高=整轮累计访问次数，
+  柱顶标注平均响应耗时 ms，配色按成功率：🟢 全成功 / 🟠 部分失败 / 🔴 全失败），按次数排序取 Top 24。
+  > 早期版本画的是「网速 KB/s」——但大量站点只回 204/302 或命中缓存，body 恒为 0 字节，
+  > 网速永远是 0，图表看不出任何东西，故 v1.3.2 换成访问次数。
 - **ADG DNS 缓存预热 / 命中测试**：先跑一轮把常用域名解析结果灌入 AdGuardHome 缓存，
   再观察命中率与解析延迟的变化，用来验证 ADG 缓存链路是否正常工作。
   > 注意：`?num=` 缓存穿透现在是**默认关闭**的勾选项（「穿透缓存(?num=)」）。旧版每次都加 `?num=`，
@@ -168,7 +210,7 @@
 
 ### 下载 / 更新
 
-- 到本仓库 **Releases** 下载最新的 `realsurf<版本>.exe`（如 `realsurf1.3.1.exe`；单文件，双击即用，无需安装）。
+- 到本仓库 **Releases** 下载最新的 `realsurf<版本>.exe`（如 `realsurf1.3.2.exe`；单文件，双击即用，无需安装）。
   **发布资产名带版本号**，下载后一看文件名就知道是哪个版本。
 - 软件启动后会**静默检查一次 GitHub 更新**；也可通过菜单「帮助 → 检查更新」手动检查，
   发现新版本可一键下载并自动替换重启。
@@ -202,7 +244,7 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 | `realnet_sim.py` | 主程序源码 |
 | `deploy.py` | 发布脚本（推送源码 + 建/更新 GitHub Release + 上传 exe） |
 | `realsurf.ico` / `icon_preview.png` | 应用图标 / README 预览图 |
-| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_v13.py`（v1.3.x 优化专项，含 R1「CSV 残留必须为 0」守护、真网络与离线自检）、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗）、`gui_v13_test.py`（GUI 三语言 + 按钮行连续性 + 布局 + 更新通道 + 启停回归） |
+| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_v13.py`（v1.3.x 优化专项：R1「CSV 残留为 0」守护、M1 图表指标/配色、M3 域名池完整性、真网络与离线自检）、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗）、`gui_v13_test.py`（GUI 三语言 + 按钮行连续性 + **图表指标** + 布局 + 更新通道 + 启停回归） |
 | `packaging/` | 打包相关：`realsurf.spec`、`realnet_sim.spec`、`make_icon.py` |
 | `archive/` | 历史遗留文件（旧版 `multi_site_access.py` 与旧 `readme.txt`） |
 | `dist/` | 构建产物目录（已在 `.gitignore` 中；`deploy.py` 从这里取 exe 上传） |
@@ -214,7 +256,7 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 
 ### 版本
 
-当前版本：`v1.3.1`
+当前版本：`v1.3.2`
 
 [↑ 回到顶部](#拟真冲浪-realsurf) · [切换到 English](#english) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -246,8 +288,11 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 - **Auto-recovery on disconnect**: a built-in monitor detects full failure, pauses, probes, and
   auto-resumes when the network recovers.
 - **Dead-domain auto-removal**: domains that keep failing (DNS errors immediately) are removed.
-- **Site editor**: add/remove sites and export JSON; a bar chart shows live per-site speed & status
-  (Idle sites with no activity are hidden).
+- **Site editor**: add/remove sites and export JSON; the bar chart shows **real visit counts per site**
+  (bar = cumulative visits, label = avg latency in ms, colour by success rate: 🟢 all OK / 🟠 partly
+  failed / 🔴 all failed), top 24 by visits.
+  > Earlier builds plotted KB/s — but most sites only return 204/302 or come from cache, so the body is
+  > always 0 bytes and the chart was empty. v1.3.2 switched to visit counts.
 - **ADG DNS cache warm-up / hit test**: run one pass to populate the AdGuardHome cache, then watch
   hit rate and resolve latency change — a quick sanity check that the ADG cache chain works.
   > Note: `?num=` cache-busting is now an **off-by-default** toggle ("Bust cache (?num=)"). The old
@@ -266,7 +311,7 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 
 ### Download / Update
 
-- Get the latest `realsurf<version>.exe` (e.g. `realsurf1.3.1.exe`) from this repo's **Releases** — the
+- Get the latest `realsurf<version>.exe` (e.g. `realsurf1.3.2.exe`) from this repo's **Releases** — the
   asset name carries the version, so you can tell versions apart at a glance (single file, just run it).
 - On launch it **silently checks GitHub once** for updates; or use "Help → Check for Update" to
   check manually and one-click download + auto-replace & restart.
@@ -295,7 +340,7 @@ Output: `dist/realsurf.exe`.
 
 ### Version
 
-Current version: `v1.3.1`
+Current version: `v1.3.2`
 
 [↑ Back to top](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -326,8 +371,11 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 - **Tự phục hồi khi mất mạng**: luồng giám sát phát hiện toàn bộ thất bại, tạm dừng, dò và tự tiếp tục
   khi mạng hồi phục.
 - **Tự xóa tên miền chết**: tên miền thất bại liên tục (lỗi DNS thì lập tức) sẽ bị xóa.
-- **Trình biên tập trang**: thêm/xóa trang và xuất JSON; biểu đồ cột hiển thị tốc độ & trạng thái từng
-  trang theo thời gian thực (ẩn các trang Idle chưa hoạt động).
+- **Trình biên tập trang**: thêm/xóa trang và xuất JSON; biểu đồ cột hiển thị **số lượt truy cập thật
+  của từng trang** (cột = tổng lượt trong cả lượt chạy, nhãn = độ trễ trung bình ms, màu theo tỉ lệ
+  thành công: 🟢 thành công hết / 🟠 lỗi một phần / 🔴 lỗi toàn bộ), lấy top 24 theo số lượt.
+  > Bản cũ vẽ KB/s — nhưng hầu hết trang chỉ trả 204/302 hoặc lấy từ cache, phần thân luôn 0 byte
+  > nên biểu đồ trống. v1.3.2 đổi sang số lượt truy cập.
 - **Làm nóng / kiểm tra cache DNS ADG**: chạy một lượt để nạp cache AdGuardHome, rồi theo dõi tỉ lệ
   hit và độ trễ phân giải — cách nhanh để xác nhận chuỗi cache ADG hoạt động.
   > Lưu ý: phá cache `?num=` nay là tùy chọn **mặc định TẮT** ("Phá cache (?num=)"). Bản cũ luôn thêm
@@ -344,7 +392,7 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 
 ### Tải / Cập nhật
 
-- Tải `realsurf<phiên bản>.exe` mới nhất (vd `realsurf1.3.1.exe`) từ **Releases** — tên asset có kèm
+- Tải `realsurf<phiên bản>.exe` mới nhất (vd `realsurf1.3.2.exe`) từ **Releases** — tên asset có kèm
   phiên bản nên nhìn là biết ngay (file duy nhất, bấm đúp để chạy).
 - Khi khởi động sẽ **tự kiểm tra GitHub một lần**; hoặc dùng "Trợ giúp → Kiểm tra cập nhật" để kiểm tra
   thủ công và tải + tự thay thế, khởi động lại một chạm.
@@ -373,6 +421,6 @@ Kết quả: `dist/realsurf.exe`.
 
 ### Phiên bản
 
-Phiên bản hiện tại: `v1.3.1`
+Phiên bản hiện tại: `v1.3.2`
 
 [↑ Về đầu](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Switch to English](#english)

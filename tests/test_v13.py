@@ -118,7 +118,7 @@ def test_static():
     check('E1 CACHE_BUST 默认关', R.CACHE_BUST is False)
     check('E2 STREAM_M3U8 已配置', len(R.STREAM_M3U8) >= 1, f'{len(R.STREAM_M3U8)} 条')
     check('C2 MAX_BULK_BYTES 已定义', R.MAX_BULK_BYTES == 200 * 1024 * 1024)
-    check('版本号为 1.3.1', R.APP_VERSION == '1.3.1', R.APP_VERSION)
+    check('版本号为 1.3.2', R.APP_VERSION == '1.3.2', R.APP_VERSION)
     for lang in ('zh', 'en', 'vi'):
         d = R.I18N[lang]
         check(f'i18n[{lang}] 新增键齐全',
@@ -297,11 +297,135 @@ def test_cache_bust():
           hasattr(R.RealNetSimApp, '_upload') and R.CACHE_BUST is False)
 
 
+def test_site_stats():
+    print("\n== M1 站点真实访问统计（图表指标不再是网速）==")
+    blank = R._blank_site_stat()
+    check('统计单元字段齐全',
+          set(blank) == {'visits', 'ok', 'ms', 'size', 'speed', 'status', 'last_time'}, sorted(blank))
+    site = '__M1_test__'
+    R.domain_status.pop(site, None)
+    R.bump_site_stat(site, True, 0.40, 2048, 'OK (200)')
+    R.bump_site_stat(site, False, 1.60, 0, 'Timeout')
+    st = R.domain_status[site]
+    check('visits 累加到 2', st['visits'] == 2, st['visits'])
+    check('ok 只计成功那次', st['ok'] == 1, st['ok'])
+    check('ms 累加 400+1600=2000', abs(st['ms'] - 2000.0) < 0.01, st['ms'])
+    check('size 累加 2048', st['size'] == 2048, st['size'])
+    check('平均耗时可算出 1000ms', abs(st['ms'] / st['visits'] - 1000.0) < 0.01)
+    check('status 记录最后一次', st['status'] == 'Timeout', st['status'])
+    c = R.RealNetSimApp._chart_color
+    check('配色：全成功=绿', c({'visits': 3, 'ok': 3}) == '#2e7d32')
+    check('配色：部分失败=橙', c({'visits': 3, 'ok': 1}) == '#ef6c00')
+    check('配色：全失败=红', c({'visits': 3, 'ok': 0}) == '#c62828')
+    check('配色：未访问=灰', c({'visits': 0, 'ok': 0}) == '#9e9e9e')
+    check('CHART_MAX_SITES 已定义且合理', 5 <= R.CHART_MAX_SITES <= 60, R.CHART_MAX_SITES)
+    R.domain_status.pop(site, None)
+    for lang in ('zh', 'en', 'vi'):
+        d = R.I18N[lang]
+        check(f'i18n[{lang}] 图表新键齐全',
+              all(k in d for k in ('chart_title', 'chart_title_idle', 'chart_ylabel',
+                                   'leg_ok', 'leg_part', 'leg_fail')))
+        check(f'i18n[{lang}] 图表文案已去网速',
+              'KB/s' not in d['chart_title'] and 'KB/s' not in d['chart_ylabel']
+              and 'kb/s' not in d['chart_title'].lower(),
+              f"{d['chart_title']} / {d['chart_ylabel']}")
+
+
+def test_domains():
+    print("\n== M3 域名池 ==")
+    check('站点数 >= 60', len(R.WEBSITES) >= 60, f'{len(R.WEBSITES)} 个品牌')
+    total = sum(len(v) for v in R.WEBSITES.values())
+    check('域名总数 >= 300', total >= 300, f'{total} 条')
+    dup = {s: [d for d in set(v) if v.count(d) > 1] for s, v in R.WEBSITES.items()
+           if len(set(v)) != len(v)}
+    check('无同站重复域名', not dup, dup)
+    bad = [(s, d) for s, v in R.WEBSITES.items() for d in v
+           if not d.startswith('https://')]
+    check('全部为 https:// 开头', not bad, bad[:3])
+    check('每个品牌至少 2 个域名', all(len(v) >= 2 for v in R.WEBSITES.values()),
+          [s for s, v in R.WEBSITES.items() if len(v) < 2])
+    check('BRAND_WEIGHT 覆盖全部品牌（含新增）',
+          not [s for s in R.WEBSITES if s not in R.BRAND_WEIGHT],
+          [s for s in R.WEBSITES if s not in R.BRAND_WEIGHT])
+    # 新增品牌抽样实测：每个都要至少被抽到一次，否则等于没加
+    import collections
+    pool = []
+    for site in R.WEBSITES:
+        if R.WEBSITES.get(site):
+            pool.extend([site] * R.BRAND_WEIGHT.get(site, R.BRAND_WEIGHT_DEFAULT))
+    c = collections.Counter(R.random.choice(pool) for _ in range(60000))
+    starved = [s for s in R.WEBSITES if s not in c]
+    check('60k 抽样无品牌被饿死', not starved, starved)
+
+
+def test_chart_render():
+    """离线渲染图表：不依赖 GUI 后端（纯 Figure），但调用的是生产代码 update_chart()。
+    这一条能抓住 update_chart 内部被 try/except 吞掉的错误——例如把模块级翻译函数
+    `_()` 误用成 for 循环变量（普通 for 会把 `_` 变成函数局部变量，导致后续
+    `_('chart_ylabel')` 直接 TypeError，而 GUI 上只表现为「图表不刷新」）。
+    """
+    print("\n== M1 图表渲染（离线，纯 Figure）==")
+    from matplotlib.figure import Figure
+    h = R.RealNetSimApp.__new__(R.RealNetSimApp)
+    fig = Figure(figsize=(9, 3.2))
+    h.fig = fig
+    h.ax = fig.add_subplot(111)
+    h.canvas = type('C', (), {'draw': lambda self: None})()
+    h.root = type('Rt', (), {'after': lambda self, *a, **kw: None})()
+
+    saved_stop = R.stop_event.is_set()
+    R.stop_event.set()                      # 阻止 update_chart 递归排期
+    with R.status_lock:
+        saved = dict(R.domain_status)
+        R.domain_status.clear()
+    try:
+        L = R.I18N[R.CURRENT_LANG]
+        h.update_chart()                    # 无任何访问 → idle 分支
+        check('idle 分支标题正确且不崩',
+              h.ax.get_title() == L['chart_title_idle'], repr(h.ax.get_title()))
+
+        with R.status_lock:
+            R.domain_status['__M1_ok__'] = {'visits': 5, 'ok': 5, 'ms': 750.0, 'size': 0.0,
+                                            'speed': 0.0, 'status': 'OK (200)', 'last_time': 0.0}
+            R.domain_status['__M1_bad__'] = {'visits': 2, 'ok': 0, 'ms': 300.0, 'size': 0.0,
+                                             'speed': 0.0, 'status': 'Timeout', 'last_time': 0.0}
+        h.update_chart()
+        check('y 轴 = 访问次数（不再是网速）', h.ax.get_ylabel() == L['chart_ylabel'],
+              repr(h.ax.get_ylabel()))
+        check('标题 = 真实访问', h.ax.get_title() == L['chart_title'], repr(h.ax.get_title()))
+        heights = sorted(b.get_height() for b in h.ax.patches)
+        check('柱高取自 visits（2 与 5）', heights == [2.0, 5.0], heights)
+        check('图例已渲染', h.ax.get_legend() is not None)
+        check('标注 = 全成功站点标耗时 / 有失败站点标状态',
+              {t.get_text() for t in h.ax.texts} == {'150ms', 'Timeout'},
+              sorted(t.get_text() for t in h.ax.texts))
+
+        with R.status_lock:
+            for i in range(40):
+                R.domain_status[f'__M1_fill_{i:02d}'] = {
+                    'visits': 1, 'ok': 1, 'ms': 10.0, 'size': 0.0, 'speed': 0.0,
+                    'status': 'OK (200)', 'last_time': 0.0}
+        h.update_chart()
+        check('超过上限只画 Top N 根柱', len(h.ax.patches) == R.CHART_MAX_SITES,
+              len(h.ax.patches))
+        check('标题标注 Top N/总数', f'Top {R.CHART_MAX_SITES}/42' in h.ax.get_title(),
+              repr(h.ax.get_title()))
+    finally:
+        with R.status_lock:
+            R.domain_status.clear()
+            R.domain_status.update(saved)
+        if not saved_stop:
+            R.stop_event.clear()
+
+
 def main():
     logging.basicConfig(level=logging.CRITICAL)
-    print("RealSurf v1.3.1 专项测试" + ("  [OFFLINE]" if OFFLINE else ""))
+    print("RealSurf v1.3.2 专项测试" + ("  [OFFLINE]" if OFFLINE else ""))
     test_residue()
     test_static()
+    test_site_stats()
+    test_domains()
+    test_chart_render()
     test_feeder_weights()
     test_update_channel()
     test_cache_bust()
