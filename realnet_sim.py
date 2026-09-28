@@ -32,6 +32,7 @@ import sys
 import os
 import json
 import logging
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, Toplevel
 import ttkbootstrap as ttkb
@@ -1957,31 +1958,75 @@ class RealNetSimApp:
             parts.append(0)
         return tuple(parts[:3])
 
+    # releases.atom / 网页里抓 tag 用；无鉴权、无 REST 的 60次/小时限制
+    _TAG_RE = re.compile(r'releases/tag/([^"\'<>\s]+)')
+
+    def _fetch_latest_release_info(self):
+        """不用受速率限制的 GitHub REST API（未鉴权仅 60次/小时/IP；代理共享出口极易被打满 → 403
+        → 旧版就一直提示「更新频繁」）。改用 Atom feed（首选）+ 网页 /releases/latest 302 兜底，二者均无速率限制。
+        返回 (tag, notes, html_url, asset_url, asset_size)；无版本返回 tag=None；两者都网络失败则抛出异常。"""
+        import html as _html
+        ua = {'User-Agent': 'Mozilla/5.0 (compatible; RealSurf updater)'}
+        tag = notes = html_url = None
+        err = None
+        # 1) Atom feed（含 tag + 发布说明）
+        try:
+            r = requests.get(f"https://github.com/{UPDATE_REPO}/releases.atom",
+                             headers=ua, timeout=20)
+            if r.status_code == 200:
+                m = re.search(r'<entry>.*?</entry>', r.text, re.S)
+                entry = m.group(0) if m else ''
+                mt = self._TAG_RE.search(entry)
+                if mt:
+                    tag = mt.group(1)
+                    html_url = f"https://github.com/{UPDATE_REPO}/releases/tag/{tag}"
+                mc = re.search(r'<content[^>]*>(.*?)</content>', entry, re.S)
+                if mc:
+                    notes = re.sub(r'<[^>]+>', '', _html.unescape(mc.group(1))).strip()
+                err = None
+        except Exception as e:
+            err = e
+            logger.warning(f"Atom 检查更新失败: {e}")
+        # 2) 网页 302 兜底（同样无速率限制）
+        if not tag:
+            try:
+                r = requests.get(f"https://github.com/{UPDATE_REPO}/releases/latest",
+                                 headers=ua, timeout=20, allow_redirects=True)
+                mt = self._TAG_RE.search(r.url or '')
+                if mt:
+                    tag = mt.group(1)
+                    html_url = r.url
+                err = None
+            except Exception as e:
+                err = e
+                logger.warning(f"网页检查更新失败: {e}")
+        if not tag:
+            if err is not None:
+                raise err          # 纯网络失败 → 让上层按「无法连接」处理
+            return None, None, None, None, 0
+        # 资产按固定命名约定推导；大小用 HEAD 的 Content-Length
+        asset_url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/realsurf.exe"
+        asset_size = 0
+        try:
+            h = requests.head(asset_url, headers=ua, timeout=30, allow_redirects=True)
+            asset_size = int(h.headers.get('Content-Length', 0) or 0)
+        except Exception:
+            asset_size = 0
+        return tag, (notes or ''), html_url, asset_url, asset_size
+
     def check_update(self, manual=False, quiet=False):
         """检查 GitHub 更新。quiet=True 时只刷新状态行，绝不弹任何错误框。"""
         try:
             if manual:
                 self._set_update_status(_("upd_checking"), 'secondary')
-            url = f"{GITHUB_API}/repos/{UPDATE_REPO}/releases/latest"
-            # 注意：HTTP 头必须是 latin-1 可编码，UA 只能用纯 ASCII
-            hdr = {'Accept': 'application/vnd.github+json', 'User-Agent': APP_UA}
-            resp = requests.get(url, headers=hdr, timeout=15)
-            if resp.status_code == 404:
+            tag, notes, html_url, asset_url, asset_size = self._fetch_latest_release_info()
+            if not tag:
                 self._set_update_status(_("upd_no_release"), 'warning')
                 if manual:
                     self.root.after(0, lambda: messagebox.showinfo(_("menu_check_update"), _("upd_no_release_msg")))
                 return
-            if resp.status_code == 403:
-                self._set_update_status(_("upd_rate_limit"), 'warning')
-                if manual:
-                    self.root.after(0, lambda: messagebox.showwarning(_("menu_check_update"), _("upd_rate_limit_msg")))
-                return
-            resp.raise_for_status()
-            rel = resp.json()
-            tag = rel.get('tag_name', '')
             remote_ver = self._version_tuple(tag)
             local_ver = self._version_tuple(APP_VERSION)
-            notes = rel.get('body', '') or ''
             if remote_ver <= local_ver:
                 self._set_update_status(_("upd_latest", ver=APP_VERSION), 'success')
                 if manual:
@@ -1989,16 +2034,6 @@ class RealNetSimApp:
                 return
             # 发现新版本
             self._set_update_status(_("upd_found_status", tag=tag), 'info')
-            asset_url = None
-            asset_size = 0
-            for a in rel.get('assets', []):
-                if a.get('name', '').lower().endswith('.exe'):
-                    asset_url = a.get('browser_download_url')
-                    try:
-                        asset_size = int(a.get('size', 0) or 0)
-                    except Exception:
-                        asset_size = 0
-                    break
             if manual:
                 parent = self.about_window if (getattr(self, 'about_window', None)
                                                and self.about_window.winfo_exists()) else self.root
@@ -2019,8 +2054,7 @@ class RealNetSimApp:
                     self.root.after(0, _ask_and_apply)
                 else:
                     def _open_repo():
-                        webbrowser.open(rel.get('html_url',
-                                               f"https://github.com/{UPDATE_REPO}/releases/latest"))
+                        webbrowser.open(html_url or f"https://github.com/{UPDATE_REPO}/releases/latest")
                     self.root.after(0, _open_repo)
             else:
                 logger.info(f"发现新版本 {tag}（当前 v{APP_VERSION}）")

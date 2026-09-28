@@ -12,23 +12,24 @@
 
 ## 更新日志 / Changelog / Nhật ký thay đổi
 
-**v1.2.1（2026-09-28）** — 更新组件修复
+**v1.2.1（2026-09-28）** — 更新通道修复 + 下载可视化
 
+- 🚫 **修复「一直提示更新频繁 / 检查更新失败」（核心）**：旧版用 GitHub **REST API** 检查更新（未鉴权仅 **60 次/小时/IP**），代理共享出口被别人打满即返回 **403** → 程序一直报「更新频繁」，更新通道等于废掉。现改用 **`releases.atom` 订阅源 + 网页 `/releases/latest` 302 重定向**（**两者均无速率限制**）取最新版本号与说明，彻底摆脱 403。
 - 🐞 **修复「识别到更新但点击没反应 / 无进度反馈」（用户反馈）**：
   - 根因①：旧版 `_apply_update` 在调用线程里**同步下载约 42MB 且零进度**，界面长时间卡死，看起来像「点了没反应」。
   - 根因②：发现新版本后的 `messagebox.askyesno` 在**后台线程**直接弹出，弹窗可能落到「关于」窗口背后，用户点了却看不到确认框。
   - 修复：下载改为**后台线程**，弹出进度条对话框（**百分比 + 已下载/总大小 + 实时速度 MB/s** + 可取消按钮）；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口。下载完成自动写重启脚本并替换重启。
-  - 强化：进度总大小以 **GitHub API 返回的 asset `size`** 为准（最可靠），依次回退 HEAD / GET 的 `Content-Length`，确保**一定显示百分比进度条**而非空转；对话框**居中并短暂置顶**，确保一定看得见；下载失败会**显示具体原因**，不再静默无反应。（本机已用真实桌面截图验证进度条确实渲染）
+  - 强化：进度总大小取 GitHub 资源 `Content-Length`（HEAD 失败则用 GET 响应头），确保**一定显示百分比进度条**而非空转；对话框**居中并短暂置顶**，确保一定看得见；下载失败会**显示具体原因**，不再静默无反应。（本机已用真实桌面截图验证进度条确实渲染）
 
 <details><summary>English</summary>
 
-**v1.2.1 (2026-09-28)** — Update component fix. Root causes: the old updater downloaded ~42MB synchronously with no feedback (UI froze, looked unresponsive); and the "new version" yes/no dialog was shown from a background thread (could appear behind the About window). Fix: download runs in a background thread with a progress dialog (**percentage + downloaded/total + live MB/s** + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent. Total size comes from the **GitHub API asset `size`** (most reliable), falling back to HEAD/GET `Content-Length`, so a real percentage bar always shows; the dialog is centered and briefly forced on top; failures now show the concrete reason instead of failing silently. Verified with a real-desktop screenshot.
+**v1.2.1 (2026-09-28)** — Update-channel fix + visualized download. The old build checked updates via the GitHub **REST API** (unauthenticated = only 60 req/hour/IP) and permanently said "rate limited" once the shared proxy IP hit 403 — now it uses the **releases.atom feed + the web /releases/latest redirect** (both rate-limit free). Root causes of "no reaction": the old updater downloaded ~42MB synchronously with no feedback (UI froze), and the "new version" dialog was shown from a background thread (could appear behind the About window). Fix: download runs in a background thread with a progress dialog (**percentage + downloaded/total + live MB/s** + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent; total size comes from the asset `Content-Length` so a real percentage bar always shows; the dialog is centered and briefly forced on top; failures now show the concrete reason. Verified with a real-desktop screenshot.
 
 </details>
 
 <details><summary>Tiếng Việt</summary>
 
-**v1.2.1 (2026-09-28)** — Sửa thành phần cập nhật. Nguyên nhân: bản cũ tải ~42MB đồng bộ, không phản hồi (UI đông cứng); hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (**phần trăm + đã tải/tổng + tốc độ MB/s** + nút Hủy); mọi hộp thoại hiện trên luồng chính với đúng cửa sổ cha. Tổng dung lượng lấy từ **`size` của asset trong API GitHub** (đáng tin nhất), dự phòng HEAD/GET `Content-Length`, đảm bảo luôn có thanh phần trăm thật; hộp thoại được căn giữa và tạm đưa lên trên; lỗi nay hiện rõ nguyên nhân thay vì im lặng. Đã xác minh bằng ảnh chụp màn hình thật.
+**v1.2.1 (2026-09-28)** — Sửa kênh cập nhật + tải có tiến trình. Bản cũ kiểm tra bằng **REST API** GitHub (không xác thực = chỉ 60 lần/giờ/IP) và luôn báo "bị giới hạn" khi IP proxy chia sẻ bị 403 — nay dùng **feed releases.atom + chuyển hướng web /releases/latest** (đều không giới hạn). Nguyên nhân "không phản hồi": bản cũ tải ~42MB đồng bộ không phản hồi; hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (**phần trăm + đã tải/tổng + tốc độ MB/s** + nút Hủy); mọi hộp thoại hiện trên luồng chính với đúng cửa sổ cha; tổng dung lượng lấy từ `Content-Length` của asset nên luôn có thanh phần trăm thật; hộp thoại căn giữa và tạm đưa lên trên; lỗi nay hiện rõ nguyên nhân. Đã xác minh bằng ảnh chụp màn hình thật.
 
 </details>
 
