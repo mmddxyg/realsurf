@@ -17,17 +17,18 @@
 - 🐞 **修复「识别到更新但点击没反应 / 无进度反馈」（用户反馈）**：
   - 根因①：旧版 `_apply_update` 在调用线程里**同步下载约 42MB 且零进度**，界面长时间卡死，看起来像「点了没反应」。
   - 根因②：发现新版本后的 `messagebox.askyesno` 在**后台线程**直接弹出，弹窗可能落到「关于」窗口背后，用户点了却看不到确认框。
-  - 修复：下载改为**后台线程**，弹出带百分比 / MB 的**进度条对话框 + 可取消按钮**；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口（关于窗口打开时置于其上方）。下载完成自动写重启脚本并替换重启。
+  - 修复：下载改为**后台线程**，弹出进度条对话框（**百分比 + 已下载/总大小 + 实时速度 MB/s** + 可取消按钮）；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口。下载完成自动写重启脚本并替换重启。
+  - 强化：进度总大小以 **GitHub API 返回的 asset `size`** 为准（最可靠），依次回退 HEAD / GET 的 `Content-Length`，确保**一定显示百分比进度条**而非空转；对话框**居中并短暂置顶**，确保一定看得见；下载失败会**显示具体原因**，不再静默无反应。（本机已用真实桌面截图验证进度条确实渲染）
 
 <details><summary>English</summary>
 
-**v1.2.1 (2026-09-28)** — Update component fix. Root cause: the old updater downloaded ~42MB synchronously with no feedback (UI froze, looked unresponsive); and the "new version" yes/no dialog was shown from a background thread (could appear behind the About window). Fix: download now runs in a background thread with a progress dialog (percentage / MB bar + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent window; on completion it writes a restart script and replaces itself.
+**v1.2.1 (2026-09-28)** — Update component fix. Root causes: the old updater downloaded ~42MB synchronously with no feedback (UI froze, looked unresponsive); and the "new version" yes/no dialog was shown from a background thread (could appear behind the About window). Fix: download runs in a background thread with a progress dialog (**percentage + downloaded/total + live MB/s** + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent. Total size comes from the **GitHub API asset `size`** (most reliable), falling back to HEAD/GET `Content-Length`, so a real percentage bar always shows; the dialog is centered and briefly forced on top; failures now show the concrete reason instead of failing silently. Verified with a real-desktop screenshot.
 
 </details>
 
 <details><summary>Tiếng Việt</summary>
 
-**v1.2.1 (2026-09-28)** — Sửa thành phần cập nhật. Nguyên nhân: bản cũ tải ~42MB đồng bộ không phản hồi (UI đông cứng); hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (thanh % / MB + nút Hủy); mọi hộp thoại cập nhật hiện trên luồng chính qua `root.after(0, …)` với đúng cửa sổ cha; xong thì ghi script khởi động lại và tự thay thế.
+**v1.2.1 (2026-09-28)** — Sửa thành phần cập nhật. Nguyên nhân: bản cũ tải ~42MB đồng bộ, không phản hồi (UI đông cứng); hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (**phần trăm + đã tải/tổng + tốc độ MB/s** + nút Hủy); mọi hộp thoại hiện trên luồng chính với đúng cửa sổ cha. Tổng dung lượng lấy từ **`size` của asset trong API GitHub** (đáng tin nhất), dự phòng HEAD/GET `Content-Length`, đảm bảo luôn có thanh phần trăm thật; hộp thoại được căn giữa và tạm đưa lên trên; lỗi nay hiện rõ nguyên nhân thay vì im lặng. Đã xác minh bằng ảnh chụp màn hình thật.
 
 </details>
 

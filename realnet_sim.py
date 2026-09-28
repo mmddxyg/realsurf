@@ -895,6 +895,13 @@ class RealNetSimApp:
         self.root.geometry("1000x800")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         apply_app_icon(self.root)   # 任务栏/标题栏自定义图标
+        # 关键：Tk 回调里的异常默认只在 stderr 打印，--noconsole 打包后完全不可见（=「点了没反应」）。
+        # 统一接管，写日志并弹一次可见错误框，方便定位。
+        self._cb_error_shown = False
+        try:
+            self.root.report_callback_exception = self._report_cb_exc
+        except Exception:
+            pass
 
         # UI 变量
         self.verify_var = tk.BooleanVar(value=True)          # 默认开启证书校验
@@ -932,6 +939,20 @@ class RealNetSimApp:
             logger.error(f"初始化 UI 失败: {traceback.format_exc()}")
             messagebox.showerror(_("err_title"), _("init_fail", e=e))
             sys.exit(1)
+
+    def _report_cb_exc(self, exc, val, tb):
+        """接管 Tk 主线程回调里的未捕获异常：写日志 + 只弹一次可见错误框。"""
+        try:
+            logger.error("Tk 回调异常: %s\n%s", val, "".join(traceback.format_exception(exc, val, tb)))
+        except Exception:
+            pass
+        if getattr(self, '_cb_error_shown', False):
+            return
+        self._cb_error_shown = True
+        try:
+            messagebox.showerror(_("err_title"), f"{val}")
+        except Exception:
+            pass
 
     # ---- 菜单 ----
     def create_menu(self):
@@ -1969,9 +1990,14 @@ class RealNetSimApp:
             # 发现新版本
             self._set_update_status(_("upd_found_status", tag=tag), 'info')
             asset_url = None
+            asset_size = 0
             for a in rel.get('assets', []):
                 if a.get('name', '').lower().endswith('.exe'):
                     asset_url = a.get('browser_download_url')
+                    try:
+                        asset_size = int(a.get('size', 0) or 0)
+                    except Exception:
+                        asset_size = 0
                     break
             if manual:
                 parent = self.about_window if (getattr(self, 'about_window', None)
@@ -1979,8 +2005,17 @@ class RealNetSimApp:
                 if asset_url:
                     info = _("upd_found_msg", tag=tag, ver=APP_VERSION, notes=notes[:600])
                     def _ask_and_apply():
-                        if messagebox.askyesno(_("menu_check_update"), info, parent=parent):
-                            self._start_update_download(parent, asset_url, tag)
+                        # 必须在主线程执行；任何异常都要「看得见」，否则 --noconsole 下就是「点了没反应」
+                        try:
+                            if messagebox.askyesno(_("menu_check_update"), info, parent=parent):
+                                self._start_update_download(parent, asset_url, tag, asset_size)
+                        except Exception as ex:
+                            logger.error(f"启动更新失败: {ex}")
+                            try:
+                                messagebox.showerror(_("upd_apply_fail_title"),
+                                                     _("upd_apply_fail_msg") + f"\n\n{ex}")
+                            except Exception:
+                                pass
                     self.root.after(0, _ask_and_apply)
                 else:
                     def _open_repo():
@@ -2009,47 +2044,71 @@ class RealNetSimApp:
             if manual:
                 self.root.after(0, lambda: messagebox.showerror(_("menu_check_update"), _("upd_fail_msg")))
 
-    def _start_update_download(self, parent, asset_url, new_version):
+    def _start_update_download(self, parent, asset_url, new_version, asset_size=0):
         """主线程创建下载进度对话框，并启动后台下载线程（不再同步卡界面）。"""
-        dlg = ttkb.Toplevel(parent if parent else self.root)
+        parent = parent if parent else self.root
+        dlg = ttkb.Toplevel(parent)
         dlg.title(_("menu_check_update"))
-        dlg.geometry("430x150")
         dlg.resizable(False, False)
         try:
-            dlg.transient(parent if parent else self.root)
-            dlg.grab_set()
+            dlg.transient(parent)
         except Exception:
             pass
         apply_app_icon(dlg)
         cancel_event = threading.Event()
         lbl = ttkb.Label(dlg, text=_("upd_downloading", ver=new_version), font=(UI_FONT, 10))
         lbl.pack(pady=(18, 8))
-        bar = ttkb.Progressbar(dlg, length=370, mode='indeterminate', bootstyle=INFO)
+        # 进度条统一按 0-100 百分比；一创建就可见（空条），不再等到第一块数据
+        bar = ttkb.Progressbar(dlg, length=380, mode='determinate', maximum=100, value=0,
+                               bootstyle=INFO)
         bar.pack(padx=24)
-        pct = ttkb.Label(dlg, text='', font=(UI_FONT, 9), bootstyle='secondary')
+        pct = ttkb.Label(dlg, text='0%', font=(UI_FONT, 9), bootstyle='secondary')
         pct.pack(pady=(4, 4))
         btn_cancel = ttkb.Button(dlg, text=_("btn_cancel"), bootstyle=SECONDARY,
                                  command=cancel_event.set)
-        btn_cancel.pack(pady=(2, 8))
+        btn_cancel.pack(pady=(2, 10))
+        # 居中到父窗口，并短暂置顶，确保一定看得见（解决「弹窗跑到后面」）
+        try:
+            dlg.update_idletasks()
+            w, h = dlg.winfo_width(), dlg.winfo_height()
+            px, py = parent.winfo_rootx(), parent.winfo_rooty()
+            pw, ph = parent.winfo_width(), parent.winfo_height()
+            dlg.geometry(f"+{max(0, px + (pw - w)//2)}+{max(0, py + (ph - h)//2)}")
+        except Exception:
+            pass
+        try:
+            dlg.grab_set()
+            dlg.lift()
+            dlg.attributes('-topmost', True)
+            dlg.after(800, lambda: dlg.attributes('-topmost', False))
+            dlg.focus_force()
+        except Exception:
+            pass
         t = threading.Thread(target=self._download_worker,
-                             args=(asset_url, new_version, dlg, bar, pct, lbl, cancel_event),
+                             args=(asset_url, new_version, dlg, bar, pct, lbl, cancel_event, asset_size),
                              daemon=True)
         t.start()
 
     def _init_bar(self, bar, total):
+        # 进度条统一按 0-100 百分比；拿不到总大小则退化为滚动条
         try:
             if total > 0:
-                bar.configure(mode='determinate', maximum=total, value=0)
+                bar.configure(mode='determinate', maximum=100, value=0)
             else:
                 bar.configure(mode='indeterminate')
                 bar.start()
         except Exception:
             pass
 
-    def _upd_progress(self, bar, pct, v, t):
+    def _upd_progress(self, bar, pct, v, t, el=0.0):
         try:
-            bar.configure(value=v)
-            pct.configure(text=f"{v*100//t}%  ({v//1048576}/{t//1048576} MB)")
+            if t > 0:
+                pct_v = min(100, v * 100 // t)
+                bar.configure(value=pct_v)
+                speed = (v / el / 1048576) if el > 0.001 else 0.0
+                pct.configure(text=f"{pct_v}%   {v/1048576:.1f}/{t/1048576:.1f} MB   {speed:.2f} MB/s")
+            else:
+                pct.configure(text=f"{v/1048576:.1f} MB   ...")
         except Exception:
             pass
 
@@ -2072,13 +2131,16 @@ class RealNetSimApp:
             pass
         self._set_update_status(_("upd_canceled"), 'secondary')
 
-    def _update_fail_ui(self, dlg):
+    def _update_fail_ui(self, dlg, detail=''):
         try:
             dlg.destroy()
         except Exception:
             pass
         self._set_update_status(_("upd_apply_fail_title"), 'warning')
-        messagebox.showerror(_("upd_apply_fail_title"), _("upd_apply_fail_msg"))
+        msg = _("upd_apply_fail_msg")
+        if detail:
+            msg = msg + "\n\n" + str(detail)[:300]
+        messagebox.showerror(_("upd_apply_fail_title"), msg)
         webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
 
     def _finish_update(self, dlg, bat):
@@ -2094,40 +2156,47 @@ class RealNetSimApp:
         subprocess.Popen(bat, shell=True)
         sys.exit(0)
 
-    def _download_worker(self, asset_url, new_version, dlg, bar, pct, lbl, cancel_event):
+    def _download_worker(self, asset_url, new_version, dlg, bar, pct, lbl, cancel_event, asset_size=0):
         """后台线程：带进度条下载更新，完成后写 bat 并重启替换。所有 Tk 操作回主线程。"""
         import tempfile, os, sys, subprocess
         tmp = tempfile.gettempdir()
         new_exe = os.path.join(tmp, "realsurf_update.exe")
+        started = time.time()
         try:
-            # 先尝试 HEAD 拿总大小；拿不到就退化成不确定模式
-            total = 0
-            try:
-                h = requests.head(asset_url, timeout=30, allow_redirects=True)
-                total = int(h.headers.get('Content-Length', 0) or 0)
-            except Exception:
-                total = 0
-            self.root.after(0, lambda: self._init_bar(bar, total))
-            logger.info(f"开始下载更新 {new_version}: {asset_url}")
+            # 总大小优先用 GitHub API 给的 asset size（最可靠），其次 HEAD / GET 的 Content-Length
+            total = int(asset_size or 0)
+            if total <= 0:
+                try:
+                    h = requests.head(asset_url, timeout=30, allow_redirects=True)
+                    total = int(h.headers.get('Content-Length', 0) or 0)
+                except Exception:
+                    total = 0
+            logger.info(f"开始下载更新 {new_version}: {asset_url} (size={total})")
             r = requests.get(asset_url, stream=True, timeout=120)
             r.raise_for_status()
+            if total <= 0:
+                total = int(r.headers.get('Content-Length', 0) or 0)
+            self.root.after(0, lambda: self._init_bar(bar, total))
             written = 0
+            last_ui = 0.0
             with open(new_exe, 'wb') as f:
-                for chunk in r.iter_content(1024 * 1024):
+                for chunk in r.iter_content(128 * 1024):
                     if cancel_event.is_set():
                         raise _CancelUpdate()
-                    if chunk:
-                        f.write(chunk)
-                        written += len(chunk)
-                        if total > 0:
-                            v, t = written, total
-                            self.root.after(0, lambda v=v, t=t: self._upd_progress(bar, pct, v, t))
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    written += len(chunk)
+                    now = time.time()
+                    if now - last_ui >= 0.1:      # 限频，别刷爆 UI
+                        last_ui = now
+                        w, t, el = written, total, now - started
+                        self.root.after(0, lambda w=w, t=t, el=el: self._upd_progress(bar, pct, w, t, el))
             if cancel_event.is_set():
                 raise _CancelUpdate()
-            if total > 0:
-                self.root.after(0, lambda: self._upd_progress(bar, pct, total, total))
-            else:
-                self.root.after(0, lambda: self._stop_bar(bar))
+            el = time.time() - started
+            self.root.after(0, lambda: self._upd_progress(bar, pct, written, (total or written), el))
+            self.root.after(0, lambda: self._stop_bar(bar))
             self.root.after(0, lambda: self._set_restart_label(lbl))
             cur = sys.executable          # onefile 下指向真实磁盘 exe（已实测）
             bat = os.path.join(tmp, "realsurf_updater.bat")
@@ -2148,7 +2217,8 @@ class RealNetSimApp:
             self.root.after(0, lambda: self._cancel_update_ui(dlg))
         except Exception as e:
             logger.error(f"更新失败: {e}")
-            self.root.after(0, lambda: self._update_fail_ui(dlg))
+            det = str(e)
+            self.root.after(0, lambda det=det: self._update_fail_ui(dlg, det))
 
 
 class _CancelUpdate(Exception):

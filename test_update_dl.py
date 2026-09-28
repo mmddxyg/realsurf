@@ -62,8 +62,9 @@ def main():
         def _init_bar(self, bar, total):
             self.total = total
 
-        def _upd_progress(self, bar, pct, v, t):
-            self.last_pct = v * 100 // t
+        def _upd_progress(self, bar, pct, v, t, el=0.0):
+            if t > 0:
+                self.last_pct = v * 100 // t
 
         def _stop_bar(self, bar):
             pass
@@ -74,7 +75,7 @@ def main():
         def _cancel_update_ui(self, dlg):
             self.canceled = True
 
-        def _update_fail_ui(self, dlg):
+        def _update_fail_ui(self, dlg, detail=''):
             self.failed = True
 
         def _finish_update(self, dlg, bat):
