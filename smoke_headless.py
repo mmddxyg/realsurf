@@ -12,15 +12,28 @@ class FakeApp:
     def __init__(self):
         # verify=False 模拟走代理 TLS 拦截环境（用户通常会勾选跳过证书校验）
         self.verify_var = type('V', (), {'get': lambda self: False})()
+        # v1.2.0 起 worker 只读快照参数，不再访问 Tk 控件
+        self.params = {'verify': False, 'stream_dur': 15.0,
+                       'stream_prob': 1.0, 'interval': 8.0}
         self.network_down = threading.Event()
-        self.stream_dur_entry = type('E', (), {'get': lambda self: '15'})()
-        self.stream_prob_entry = type('E', (), {'get': lambda self: '100'})()
-        self.interval_entry = type('E', (), {'get': lambda self: '8'})()
+        self.conn_file = None
+        self.conn_lock = threading.Lock()
+        self.csv_var = type('B', (), {'get': lambda self: False})()
 
         class M:
             def record(self, ok):
                 pass
         self.monitor = M()
+
+    # 占位：冒烟测试不写 CSV
+    def _record_conn(self, *a, **k):
+        pass
+
+    def _open_conn_log(self):
+        pass
+
+    def _page_burst(self, site_name, base_url, session):
+        pass
 
 
 def main():

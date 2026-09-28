@@ -2,7 +2,8 @@
 .github_token
 
 # 运行/构建产物
-access_log.txt
+access_log*.txt
+conn_log.csv
 realsurf_config.json
 sites_export.json
 *.log

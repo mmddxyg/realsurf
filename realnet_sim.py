@@ -48,6 +48,39 @@ from requests.packages.urllib3.util.retry import Retry
 from queue import Queue, Empty
 import traceback
 import webbrowser
+import csv
+from logging.handlers import RotatingFileHandler
+from urllib.parse import urlparse
+
+# urllib3 的 DNS 解析失败异常类（requests 本身没有 NameResolutionError，
+# 实际以 ConnectionError 形态出现，__cause__ 指向 urllib3 的该类）
+try:
+    from requests.packages.urllib3.exceptions import NameResolutionError as Urllib3NameResolutionError
+except Exception:
+    try:
+        from urllib3.exceptions import NameResolutionError as Urllib3NameResolutionError
+    except Exception:
+        Urllib3NameResolutionError = None
+
+
+def is_dns_error(e):
+    """判断异常是否为 DNS 解析失败（域名已死）。
+
+    requests 没有 requests.exceptions.NameResolutionError 这个类，
+    DNS 失败实际以 ConnectionError 出现：其 __cause__ 是 urllib3 的
+    NameResolutionError，或异常消息含解析失败关键字。
+    """
+    if Urllib3NameResolutionError is not None:
+        cause = getattr(e, '__cause__', None)
+        if isinstance(cause, Urllib3NameResolutionError):
+            return True
+    msg = ' '.join(str(x) for x in (
+        getattr(e, 'args', ()), str(e), str(getattr(e, '__cause__', '')))).lower()
+    keys = ('name or service not known', 'failed to resolve', 'getaddrinfo',
+            'nodename nor servname', 'nameresolutionerror',
+            'no address associated with hostname', 'could not resolve host',
+            'dns', 'name or service not known')
+    return any(k in msg for k in keys)
 
 
 def resource_path(rel):
@@ -89,7 +122,7 @@ I18N = {
         'menu_language': '语言', 'menu_help': '帮助', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': '关于 {name}', 'about_ver': '当前版本  v{ver}', 'about_lang_label': '界面语言:',
         'lbl_threads': '最大并发线程 (1-20):', 'lbl_interval': '访问间隔 (秒, 5-30):',
-        'chk_verify': '跳过证书校验(代理环境)', 'lbl_stream_prob': '长连接比例(0-50):',
+        'chk_verify': '跳过证书校验(代理环境)', 'chk_csv': '记录连接明细(CSV)', 'lbl_stream_prob': '长连接比例(0-50):',
         'lbl_stream_dur': '单次观看(秒,20-120):', 'btn_start': '开始', 'btn_stop': '停止',
         'lbl_requests': '请求总数: {n}', 'lbl_errors': '错误总数: {n}',
         'net_ok': '网络状态: 正常', 'net_down': '网络状态: 断联恢复中…',
@@ -109,7 +142,7 @@ I18N = {
         'export_ok_title': '导出成功', 'export_ok': '已导出到 sites_export.json',
         'err_export': '导出失败: {e}',
         'init_fail': '初始化失败: {e}\n请检查 access_log.txt',
-        'err_threads': '并发线程数必须在 1-20 之间，使用默认值 16',
+        'err_threads': '并发线程数必须在 1-20 之间，使用默认值 8',
         'exit_title': '退出', 'exit_confirm': '确定要退出吗？',
         'chart_title': '各站点实时网速与状态', 'chart_title_idle': '各站点实时网速与状态（暂无活动）',
         'chart_ylabel': '网速 (KB/s)',
@@ -144,7 +177,7 @@ I18N = {
         'menu_language': 'Language', 'menu_help': 'Help', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': 'About {name}', 'about_ver': 'Version  v{ver}', 'about_lang_label': 'Interface language:',
         'lbl_threads': 'Max Threads (1-20):', 'lbl_interval': 'Visit Interval (s, 5-30):',
-        'chk_verify': 'Skip Cert Verify (proxy)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
+        'chk_verify': 'Skip Cert Verify (proxy)', 'chk_csv': 'Log connections (CSV)', 'lbl_stream_prob': 'Stream Ratio (0-50):',
         'lbl_stream_dur': 'Watch Duration (s, 20-120):', 'btn_start': 'Start', 'btn_stop': 'Stop',
         'lbl_requests': 'Total Requests: {n}', 'lbl_errors': 'Total Errors: {n}',
         'net_ok': 'Network: OK', 'net_down': 'Network: Reconnecting…',
@@ -164,7 +197,7 @@ I18N = {
         'export_ok_title': 'Exported', 'export_ok': 'Exported to sites_export.json',
         'err_export': 'Export failed: {e}',
         'init_fail': 'Init failed: {e}\nCheck access_log.txt',
-        'err_threads': 'Thread count must be 1-20; using default 16',
+        'err_threads': 'Thread count must be 1-20; using default 8',
         'exit_title': 'Exit', 'exit_confirm': 'Exit the application?',
         'chart_title': 'Real-time Speed & Status per Site', 'chart_title_idle': 'Real-time Speed & Status (no activity yet)',
         'chart_ylabel': 'Speed (KB/s)',
@@ -198,7 +231,7 @@ I18N = {
         'menu_language': 'Ngôn ngữ', 'menu_help': 'Trợ giúp', 'lang_zh': '中文', 'lang_en': 'English', 'lang_vi': 'Tiếng Việt',
         'about_title': 'Giới thiệu {name}', 'about_ver': 'Phiên bản  v{ver}', 'about_lang_label': 'Ngôn ngữ giao diện:',
         'lbl_threads': 'Số luồng tối đa (1-20):', 'lbl_interval': 'Khoảng cách truy cập (giây, 5-30):',
-        'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
+        'chk_verify': 'Bỏ xác thực chứng chỉ (proxy)', 'chk_csv': 'Ghi kết nối (CSV)', 'lbl_stream_prob': 'Tỉ lệ luồng (0-50):',
         'lbl_stream_dur': 'Thời gian xem (giây, 20-120):', 'btn_start': 'Bắt đầu', 'btn_stop': 'Dừng',
         'lbl_requests': 'Tổng yêu cầu: {n}', 'lbl_errors': 'Tổng lỗi: {n}',
         'net_ok': 'Mạng: Bình thường', 'net_down': 'Mạng: Đang kết nối lại…',
@@ -218,7 +251,7 @@ I18N = {
         'export_ok_title': 'Đã xuất', 'export_ok': 'Đã xuất ra sites_export.json',
         'err_export': 'Lỗi xuất: {e}',
         'init_fail': 'Lỗi khởi tạo: {e}\nKiểm tra access_log.txt',
-        'err_threads': 'Số luồng phải từ 1-20; dùng mặc định 16',
+        'err_threads': 'Số luồng phải từ 1-20; dùng mặc định 8',
         'exit_title': 'Thoát', 'exit_confirm': 'Thoát ứng dụng?',
         'chart_title': 'Tốc độ & trạng thái theo trang', 'chart_title_idle': 'Tốc độ & trạng thái (chưa có hoạt động)',
         'chart_ylabel': 'Tốc độ (KB/s)',
@@ -301,11 +334,23 @@ set_lang_fonts()
 # 日志
 # ---------------------------------------------------------------------------
 try:
+    # 启动前若旧日志过大（多为重复冒烟错误），先归档，避免无限膨胀
+    _log_path = 'access_log.txt'
+    try:
+        if os.path.exists(_log_path) and os.path.getsize(_log_path) > 15 * 1024 * 1024:
+            _old = 'access_log.old.txt'
+            if os.path.exists(_old):
+                os.remove(_old)
+            os.rename(_log_path, _old)
+    except Exception:
+        pass
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('access_log.txt', encoding='utf-8'),
+            # 轮转：单文件上限 5MB，保留 2 个备份（access_log.txt.1/.2），防止日志无限膨胀
+            RotatingFileHandler(_log_path, maxBytes=5 * 1024 * 1024, backupCount=2,
+                                encoding='utf-8'),
             logging.StreamHandler(sys.stdout),
         ],
     )
@@ -714,6 +759,19 @@ STREAM_SITES = [
      'mp4': True},
 ]
 
+# 品牌热度权重（幂律近似）：投喂器按权重抽样，头部站更频繁，避免"均匀访问 54 个品牌"
+# 带来的训练样本偏置。未列出的品牌权重为 1。
+BRAND_WEIGHT = {
+    "Google": 6, "YouTube": 6, "Netflix": 5, "Amazon": 5, "Facebook": 5,
+    "Instagram": 4, "TikTok": 5, "Microsoft": 4, "Apple": 4, "Reddit": 4,
+    "X": 4, "Wikipedia": 4, "Bilibili": 4, "Baidu": 4, "Zhihu": 3,
+    "Weibo": 3, "Twitch": 3, "Discord": 3, "GitHub": 3, "Spotify": 3,
+    "DisneyPlus": 2, "PrimeVideo": 2, "HBOMax": 2, "iQIYI": 2, "Youku": 2,
+    "WeTV": 2, "Pinterest": 2, "LinkedIn": 2, "Telegram": 2, "Dropbox": 2,
+    "Cloudflare": 2, "Quora": 1, "StackOverflow": 2, "Medium": 2, "Vimeo": 2,
+    "Dailymotion": 1, "SoundCloud": 1, "BBC": 2, "CNN": 2, "eBay": 2,
+}
+
 # ---------------------------------------------------------------------------
 # 全局状态
 # ---------------------------------------------------------------------------
@@ -730,7 +788,7 @@ sites_lock = threading.Lock()     # 保护 WEBSITES / domain_fail_count 的并�
 FAIL_THRESHOLD = 3                # 连续失败达此次数即剔除该域名（DNS 错误立即剔除）
 
 # 资源占用控制
-MAX_WORKERS = 16               # 并发 worker 上限，避免开大量线程拖垮系统/卡鼠标
+MAX_WORKERS = 8                # 并发 worker 默认上限，降低对旁路由/ADG 的带宽与 DNS 日志扰动
 MAX_BODY_BYTES = 256 * 1024    # 单次请求最多读取的响应体字节（流式），避免整页解压耗 CPU/内存
 MAX_STREAM_BYTES = 50 * 1024 * 1024   # 单次"观看"最多拉取的字节，避免对测试视频 CDN 打流过猛
 STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI 可调
@@ -739,7 +797,7 @@ STREAM_PROB = 0.20             # 长连接(视频流)任务占比默认 20%，UI
 # 软件信息 / GitHub 更新通道
 # ---------------------------------------------------------------------------
 APP_NAME = "拟真冲浪 RealSurf"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_UA = f"RealSurf/{APP_VERSION}"   # HTTP 头必须是 ASCII，绝不能用中文 APP_NAME（否则 latin-1 报错）
 # 更新仓库（owner/repo）。构建/发布前由发布脚本填入真实 owner；
 # 软件启动时查询该仓库的 latest release 判断是否有新版本。
@@ -780,7 +838,8 @@ class NetMonitor:
         headers = {'User-Agent': random.choice([p['User-Agent'] for p in BROWSER_PROFILES])}
         for host in self.probe_hosts:
             try:
-                r = self.app.session.get(host, timeout=10, verify=self.app.verify_var.get(),
+                _verify = getattr(self.app, 'params', {}).get('verify', True)
+                r = self.app.session.get(host, timeout=10, verify=_verify,
                                          headers=headers)
                 if r.status_code < 500:
                     return True
@@ -824,6 +883,8 @@ class RealNetSimApp:
 
         # UI 变量
         self.verify_var = tk.BooleanVar(value=True)          # 默认开启证书校验
+        self.csv_var = tk.BooleanVar(value=True)             # 默认记录连接明细 CSV
+        self.conn_lock = threading.Lock()                    # 保护 CSV 写入
         self.network_down = threading.Event()
 
         # 日志队列
@@ -898,7 +959,7 @@ class RealNetSimApp:
         self.threads_label = ttkb.Label(input_frame, text=_("lbl_threads"), font=(UI_FONT, 12))
         self.threads_label.grid(row=0, column=0, padx=5)
         self.threads_entry = ttkb.Entry(input_frame, width=5, font=(UI_FONT, 12))
-        self.threads_entry.insert(0, "16")
+        self.threads_entry.insert(0, "8")
         self.threads_entry.grid(row=0, column=1, padx=5)
 
         self.interval_label = ttkb.Label(input_frame, text=_("lbl_interval"), font=(UI_FONT, 12))
@@ -933,6 +994,11 @@ class RealNetSimApp:
         self.stop_button = ttkb.Button(button_frame, text=_("btn_stop"), command=self.stop_test,
                                        state="disabled", bootstyle=DANGER)
         self.stop_button.grid(row=0, column=1, padx=5)
+
+        self.csv_check = ttkb.Checkbutton(
+            button_frame, text=_("chk_csv"),
+            variable=self.csv_var, bootstyle="round-toggle")
+        self.csv_check.grid(row=0, column=2, padx=10)
 
         # 状态框架
         status_frame = ttkb.Frame(main_frame, padding="10")
@@ -1197,7 +1263,7 @@ class RealNetSimApp:
         with counter_lock:
             error_counter += 1
         logger.error(msg)
-        if warn_if_verify and self.verify_var.get():
+        if warn_if_verify and self.params.get('verify', False):
             logger.warning(warn_if_verify)
         time.sleep(retry_sleep)
         with sites_lock:
@@ -1211,6 +1277,66 @@ class RealNetSimApp:
                 domain_fail_count.pop(url, None)
             else:
                 domain_fail_count[url] = domain_fail_count.get(url, 0) + 1
+
+    # ---- 连接明细 CSV（P2：可离线审计样本分布 / ADG 缓存验证） ----
+    def _open_conn_log(self):
+        try:
+            if getattr(self, 'csv_var', None) and self.csv_var.get():
+                new_file = (not os.path.exists('conn_log.csv')) or os.path.getsize('conn_log.csv') == 0
+                self.conn_file = open('conn_log.csv', 'a', newline='', encoding='utf-8')
+                if new_file:
+                    csv.writer(self.conn_file).writerow(
+                        ['ts', 'site', 'host', 'url', 'status', 'bytes', 'ms', 'ok'])
+                self.conn_file.flush()
+            else:
+                self.conn_file = None
+        except Exception as e:
+            logger.warning(f"打开连接明细 CSV 失败: {e}")
+            self.conn_file = None
+
+    def _record_conn(self, site, url, status, size, duration, ok):
+        cf = getattr(self, 'conn_file', None)
+        if cf is None:
+            return
+        try:
+            host = urlparse(url).netloc
+            with self.conn_lock:
+                csv.writer(cf).writerow([
+                    time.strftime('%Y-%m-%d %H:%M:%S'), site, host, url,
+                    status, int(size), int(duration * 1000), int(bool(ok))])
+                cf.flush()
+        except Exception:
+            pass
+
+    # ---- 页面簇发（P1：模拟真实页面加载多个兄弟子资源，还原簇发形态） ----
+    def _page_burst(self, site_name, base_url, session):
+        """访问成功后并发拉取同品牌兄弟子域（模拟真实页面多资源加载）。
+        仅用已有站点 URL，不产生新的 DNS 目标；单资源上限 64KB。"""
+        global request_counter
+        with sites_lock:
+            sibs = [u for u in WEBSITES.get(site_name, []) if u != base_url]
+        if not sibs:
+            return
+        n = random.randint(2, 3)
+        for sub in random.sample(sibs, min(n, len(sibs))):
+            if stop_event.is_set() or self.network_down.is_set():
+                break
+            try:
+                r = session.get(sub, timeout=15, verify=self.params['verify'],
+                                headers=dict(random.choice(BROWSER_PROFILES)), stream=True)
+                try:
+                    tot = 0
+                    for chunk in r.iter_content(16384):
+                        tot += len(chunk)
+                        if tot >= 64 * 1024:
+                            break
+                finally:
+                    r.close()
+                with counter_lock:
+                    request_counter += 1
+            except requests.exceptions.RequestException:
+                pass
+            time.sleep(random.uniform(0.3, 1.2))
 
     # ---- 单次访问（真实浏览器模拟，流式读取，限制体积） ----
     def visit_one(self, site_name, session):
@@ -1232,7 +1358,7 @@ class RealNetSimApp:
         ok = False
         try:
             # 流式读取，最多 MAX_BODY_BYTES，避免整页解压占用大量 CPU/内存
-            response = session.get(req_url, timeout=30, verify=self.verify_var.get(),
+            response = session.get(req_url, timeout=30, verify=self.params['verify'],
                                    headers=profile, stream=True)
             try:
                 for chunk in response.iter_content(16384):
@@ -1244,6 +1370,12 @@ class RealNetSimApp:
             with counter_lock:
                 request_counter += 1
             ok = True
+            # 页面簇发：访问成功后以一定概率并发拉取同品牌兄弟子域，模拟真实页面多资源加载
+            if random.random() < 0.4:
+                try:
+                    self._page_burst(site_name, url, session)
+                except Exception as e:
+                    logger.debug(f"page burst 异常: {e}")
             with sites_lock:
                 domain_fail_count.pop(url, None)   # 成功：清零该域名失败计数
             if response.status_code == 429:
@@ -1255,7 +1387,7 @@ class RealNetSimApp:
                     else f"Error ({response.status_code})"
         except requests.exceptions.SSLError as e:
             self._on_fail(site_name, url, f"SSL 错误 {site_name} ({req_url}): {e} - 跳过",
-                          retry_sleep=1 if not self.verify_var.get() else 3,
+                          retry_sleep=1 if not self.params.get('verify', False) else 3,
                           warn_if_verify="证书错误：如走代理 TLS 拦截，请勾选「跳过证书校验」")
             status = 'SSL Error'
         except requests.exceptions.ConnectTimeout as e:
@@ -1265,13 +1397,14 @@ class RealNetSimApp:
             self._on_fail(site_name, url, f"读取超时 {site_name} ({req_url}): {e} - 跳过", retry_sleep=1)
             status = 'Timeout'
         except requests.exceptions.ConnectionError as e:
-            self._on_fail(site_name, url, f"连接错误 {site_name} ({req_url}): {e} - 等待恢复", retry_sleep=2)
-            status = 'ConnErr'
-        except requests.exceptions.NameResolutionError as e:
-            # DNS 解析失败 = 域名已死，立即剔除
-            self._on_fail(site_name, url, f"域名解析失败 {site_name} ({req_url}): {e} - 剔除该域名",
-                          force_drop=True)
-            status = 'DNS Error'
+            # DNS 解析失败 = 域名已死，立即剔除（不再走慢路径阈值）
+            if is_dns_error(e):
+                self._on_fail(site_name, url, f"域名解析失败 {site_name} ({req_url}): {e} - 剔除该域名",
+                              force_drop=True)
+                status = 'DNS Error'
+            else:
+                self._on_fail(site_name, url, f"连接错误 {site_name} ({req_url}): {e} - 等待恢复", retry_sleep=2)
+                status = 'ConnErr'
         except requests.exceptions.RequestException as e:
             self._on_fail(site_name, url, f"其他请求错误 {site_name} ({req_url}): {e} - 跳过", retry_sleep=1)
             status = 'Error'
@@ -1283,14 +1416,15 @@ class RealNetSimApp:
                                             'last_time': time.time(), 'size': size}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
+            self._record_conn(site_name, url, status, size, duration, ok)
 
     # ---- 长连接(视频流)会话：模拟真人看视频 ----
     def stream_session(self, session):
         global request_counter, error_counter
         try:
-            stream_seconds = float(self.stream_dur_entry.get())
+            stream_seconds = float(self.params['stream_dur'])
             stream_seconds = max(20.0, min(stream_seconds, 120.0))
-        except ValueError:
+        except (ValueError, KeyError):
             stream_seconds = 45.0
         target = random.choice(STREAM_SITES)
         is_mp4 = target.get('mp4', False)
@@ -1319,7 +1453,7 @@ class RealNetSimApp:
                     req_headers = dict(profile)
                     req_headers['Range'] = f'bytes={pos}-{end}'
                     try:
-                        r = session.get(url, timeout=30, verify=self.verify_var.get(),
+                        r = session.get(url, timeout=30, verify=self.params['verify'],
                                         headers=req_headers, stream=True)
                         try:
                             for chunk in r.iter_content(16384):
@@ -1345,7 +1479,7 @@ class RealNetSimApp:
                 # 视频平台：打开观看页 → 看一会儿（零星子资源请求）
                 profile['Sec-Fetch-Dest'] = 'document'
                 try:
-                    r = session.get(url, timeout=30, verify=self.verify_var.get(),
+                    r = session.get(url, timeout=30, verify=self.params['verify'],
                                     headers=profile, stream=True)
                     try:
                         for chunk in r.iter_content(16384):
@@ -1370,11 +1504,14 @@ class RealNetSimApp:
                         break
                     sub = random.choice(target.get('subs', []))
                     try:
-                        sr = session.get(sub, timeout=20, verify=self.verify_var.get(),
+                        sr = session.get(sub, timeout=20, verify=self.params['verify'],
                                         headers=dict(random.choice(BROWSER_PROFILES)), stream=True)
                         try:
-                            for _ in sr.iter_content(16384):
-                                pass
+                            tot = 0
+                            for chunk in sr.iter_content(16384):
+                                tot += len(chunk)
+                                if tot >= 256 * 1024:
+                                    break
                         finally:
                             sr.close()
                         with counter_lock:
@@ -1390,6 +1527,7 @@ class RealNetSimApp:
                                        'status': status, 'last_time': time.time(), 'size': total}
             if hasattr(self, 'monitor'):
                 self.monitor.record(ok)
+            self._record_conn(host, url, status, total, duration, ok)
 
     # ---- worker 主循环：从队列取站点，访问后按间隔休息 ----
     def worker_loop(self, session):
@@ -1398,10 +1536,7 @@ class RealNetSimApp:
                 time.sleep(3)
                 continue
             # 按概率切换到"长连接(视频流)"任务，模拟真人边看视频边偶尔浏览
-            try:
-                stream_prob = float(self.stream_prob_entry.get()) / 100.0
-            except ValueError:
-                stream_prob = STREAM_PROB
+            stream_prob = self.params['stream_prob']
             if random.random() < stream_prob:
                 try:
                     self.stream_session(session)
@@ -1417,22 +1552,27 @@ class RealNetSimApp:
                 self.visit_one(site, session)
             except Exception as e:
                 logger.error(f"worker 异常 {site}: {e}")
-            try:
-                interval = float(self.interval_entry.get())
-                interval = max(5.0, min(interval, 30.0))
-            except ValueError:
-                interval = 10.0
+            interval = self.params['interval']
             time.sleep(random.uniform(interval / 2, interval))
 
     # ---- 站点投喂器：持续把各站点名放入队列（带背压，防止队列堆积） ----
     def _feeder(self):
         while not stop_event.is_set() and not self.feeder_stop.is_set():
+            # 按品牌热度加权抽样（幂律近似），让头部站更频繁，缓解均匀分布偏置
+            pool = []
             for site in list(WEBSITES.keys()):
-                if not WEBSITES.get(site):
-                    continue
-                while self.task_queue.qsize() > MAX_WORKERS * 2 and \
+                if WEBSITES.get(site):
+                    pool.extend([site] * BRAND_WEIGHT.get(site, 1))
+            if not pool:
+                time.sleep(0.5)
+                continue
+            while not stop_event.is_set() and not self.feeder_stop.is_set():
+                site = random.choice(pool)
+                while self.task_queue.qsize() > self.p_maxq and \
                         not stop_event.is_set() and not self.feeder_stop.is_set():
                     time.sleep(0.5)
+                if stop_event.is_set() or self.feeder_stop.is_set():
+                    break
                 self.task_queue.put(site)
             time.sleep(0.2)
 
@@ -1445,9 +1585,30 @@ class RealNetSimApp:
                 raise ValueError
         except ValueError:
             messagebox.showerror(_("err_title"), _("err_threads"))
-            max_workers = 16
+            max_workers = 8
             self.threads_entry.delete(0, tk.END)
-            self.threads_entry.insert(0, "16")
+            self.threads_entry.insert(0, "8")
+
+        # 快照 UI 参数（普通变量），worker 子线程只读快照，杜绝子线程访问 Tk 控件崩溃
+        try:
+            interval = max(5.0, min(float(self.interval_entry.get()), 30.0))
+        except ValueError:
+            interval = 10.0
+        try:
+            stream_prob = max(0.0, min(float(self.stream_prob_entry.get()) / 100.0, 0.5))
+        except ValueError:
+            stream_prob = STREAM_PROB
+        try:
+            stream_dur = max(20.0, min(float(self.stream_dur_entry.get()), 120.0))
+        except ValueError:
+            stream_dur = 45.0
+        self.params = {
+            'verify': bool(self.verify_var.get()),
+            'interval': interval,
+            'stream_prob': stream_prob,
+            'stream_dur': stream_dur,
+        }
+        self.p_maxq = max_workers * 2   # 背压上限用真实并发数，而非写死的常量
 
         global request_counter, error_counter
         with counter_lock:
@@ -1464,12 +1625,23 @@ class RealNetSimApp:
         self.log_text.delete(1.0, tk.END)
         self.log_text.configure(state="disabled")
 
+        # B5：关闭旧 session，避免连接泄漏
+        if getattr(self, 'session', None) is not None:
+            try:
+                self.session.close()
+            except Exception:
+                pass
+
         self.session = requests.Session()
-        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        # B8：仅 1 次连接重试，不对 429/5xx 重试，避免放大流量冲击旁路由/ADG
+        retry = Retry(total=1, backoff_factor=0.5, status_forcelist=[])
         adapter = HTTPAdapter(max_retries=retry, pool_connections=max_workers + 4,
                               pool_maxsize=max_workers + 4)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
+
+        # P2：打开连接明细 CSV（追加；空文件则写表头）
+        self._open_conn_log()
 
         self.network_down.clear()
         self.task_queue = Queue()
@@ -1487,8 +1659,11 @@ class RealNetSimApp:
         for _ in range(max_workers):
             executor.submit(self.worker_loop, self.session)
 
+        # B4：重新启动图表刷新循环（stop→start 后图表不会自动恢复）
+        self.root.after(1500, self.update_chart)
+
         logger.info(f"模拟开始，并发线程: {max_workers}，站点数: {len(WEBSITES)}，"
-                    f"证书校验: {'关' if not self.verify_var.get() else '开'}")
+                    f"证书校验: {'关' if not self.params['verify'] else '开'}")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
 
@@ -1502,6 +1677,12 @@ class RealNetSimApp:
         if hasattr(self, 'monitor'):
             self.monitor.running = False
         self.network_down.clear()
+        if getattr(self, 'conn_file', None) is not None:
+            try:
+                self.conn_file.close()
+            except Exception:
+                pass
+            self.conn_file = None
         logger.info("模拟已停止")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")

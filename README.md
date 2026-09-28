@@ -10,6 +10,29 @@
 
 ---
 
+## 更新日志 / Changelog / Nhật ký thay đổi
+
+**v1.2.0（2026-09-28）**
+
+- **修复 3 个稳定性 bug（P0）**：① DNS 解析失败现在能被正确识别并**立即剔除失效域名**（旧版 `requests.exceptions.NameResolutionError` 不存在导致该逻辑 100% 失效）；② 子线程不再读取 Tk 控件，消除 `main thread is not in main loop` 崩溃；③ 修复日志无限膨胀（改为 5MB×2 轮转）、旧 Session 泄漏、停止后再开始图表不刷新。
+- **降低对旁路由 / ADG 的冲击（P3）**：默认并发 16→**8**；重试由「3 次 + 429/5xx 重试」降为「仅 1 次连接重试」避免放大流量；子资源加 256KB 上限；背压上限改用真实并发数。
+- **训练样本质量（P1 / P2）**：品牌按**热度幂律加权**投喂（头部站更频繁，缓解均匀分布偏置）；新增**页面簇发**（访问成功后并发拉取同品牌兄弟子域，还原真实页面多资源加载）；新增**连接明细 CSV 导出** `conn_log.csv`（ts / host / url / status / bytes / ms / ok），可离线审计样本分布、验证 ADG 缓存命中。
+- **未做项（后续）**：真实 **HTTP/2 · QUIC** 协议栈改写（建议 P1 第三项）本期未纳入 —— 它会显著增加打包与回归风险，而本工具的 ADG DNS 缓存预热按主机名生效、不受 HTTP 版本影响。如确需 h2/QUIC 流量形态用于 Smart/LightGBM 训练，将在下个版本以可选 `httpx` 通道实现。
+
+<details><summary>English</summary>
+
+**v1.2.0 (2026-09-28)** — Fixed 3 stability bugs (DNS-failure domains now dropped immediately; no more sub-thread Tk crashes; log rotation + session leak + chart-resume fixed). Reduced impact on side-router/ADG (default 16→8 threads; 1 connection retry only; 256KB subresource cap). Training-quality: power-law brand weighting, page-burst (sibling subdomain fetches), and `conn_log.csv` structured export. HTTP/2·QUIC rewrite deferred to a later release (optional `httpx` channel).
+
+</details>
+
+<details><summary>Tiếng Việt</summary>
+
+**v1.2.0 (2026-09-28)** — Sửa 3 lỗi ổn định (tên miền lỗi DNS giờ bị xóa ngay; hết crash luồng phụ đọc Tk; log quay vòng + leak session + chart hồi phục). Giảm tác động lên router/ADG (mặc định 16→8 luồng; chỉ 1 lần thử lại kết nối; giới hạn 256KB tài nguyên phụ). Chất lượng huấn luyện: trọng số thương hiệu theo luật lũy thừa, bùng nổ trang (tải tên miền anh em), xuất CSV `conn_log.csv`. Hoãn viết lại HTTP/2·QUIC (kênh `httpx` tùy chọn ở bản sau).
+
+</details>
+
+---
+
 ## 中文
 
 ### 这是什么
@@ -76,7 +99,7 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 
 ### 版本
 
-当前版本：`v1.1.0`
+当前版本：`v1.2.0`
 
 [↑ 回到顶部](#拟真冲浪-realsurf) · [切换到 English](#english) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -141,7 +164,7 @@ Output: `dist/realsurf.exe`.
 
 ### Version
 
-Current version: `v1.1.0`
+Current version: `v1.2.0`
 
 [↑ Back to top](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Chuyển sang Tiếng Việt](#tiếng-việt)
 
@@ -206,6 +229,6 @@ Kết quả: `dist/realsurf.exe`.
 
 ### Phiên bản
 
-Phiên bản hiện tại: `v1.1.0`
+Phiên bản hiện tại: `v1.2.0`
 
 [↑ Về đầu](#拟真冲浪-realsurf) · [切换到 中文](#中文) · [Switch to English](#english)
