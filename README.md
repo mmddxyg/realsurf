@@ -12,28 +12,24 @@
 
 ## 更新日志 / Changelog / Nhật ký thay đổi
 
-**v1.3.2（2026-09-29）** — 图表换指标（网速 → 真实访问次数）+ 域名池扩容
+### v1.3.2（2026-09-29）— 图表换指标 + 域名池扩容 `当前版本`
 
-- 📊 **柱状图指标从「网速 KB/s」改为「真实访问次数」**：原指标有个硬伤——大量站点只回 204/302、命中 ADG/DNS 缓存，或本身就没有可下载的 body，读到的字节数恒为 0，**网速恒为 0 KB/s**，图表看上去一片空白，完全反映不出「到底有没有在访问」。现改为：
-  - **柱高 = 访问次数**（整轮累计）——只要请求真的发出去了就 ≥ 1，是"真实访问"的直接证据；
-  - **柱顶标注 = 平均响应耗时 ms**（该站有失败时改标失败状态，如 `Timeout` / `DNS Error`）；
-  - **配色改为按成功率**：🟢 全成功 / 🟠 部分失败 / 🔴 全失败（原来是按状态字符串上色），右上角带图例；
-  - **按访问次数排序取 Top 24**，超出时标题显示 `Top 24/总数`，避免几十根柱子糊成一片。
-- 🌐 **域名池扩容：54 → 79 个品牌，域名 543 → 649 条（新增 106 条）**。新增一批**逐个真机实测可达**后才加入的站点：OpenAI / ChatGPT、Claude、Steam、腾讯 QQ·微信、淘宝天猫·阿里、京东、网易、抖音、小红书、华为、NVIDIA、Adobe、Zoom、Slack、Notion、Figma、Yahoo、IMDb、纽约时报、PayPal、Airbnb、Booking、Stripe、DuckDuckGo、Speedtest。
+- 📊 **柱状图指标：网速 KB/s → 真实访问次数**。原指标有个硬伤——大量站点只回 204/302、命中 ADG/DNS 缓存，或本身没有可下载的 body，读到的字节数恒为 0，**网速恒为 0 KB/s**，图表看上去一片空白。现改为：
+  - **柱高 = 整轮累计访问次数**（请求真发出去了就 ≥ 1，是「真实访问」的直接证据）；
+  - **柱顶标注 = 平均响应耗时 ms**（该站有失败时改标失败原因，如 `Timeout` / `DNS Error`）；
+  - **配色按成功率**：🟢 全成功 / 🟠 部分失败 / 🔴 全失败（右上角带图例）；
+  - 按次数排序取 **Top 24**，超出时标题显示 `Top 24/总数`，避免几十根柱子糊成一片。
+- 🌐 **域名池扩容：54 → 79 个品牌，543 → 649 条域名（新增 106 条）**。新增站点全部**逐个真机实测可达后**才加入：OpenAI / ChatGPT、Claude、Steam、腾讯 QQ·微信、淘宝天猫·阿里、京东、网易、抖音、小红书、华为、NVIDIA、Adobe、Zoom、Slack、Notion、Figma、Yahoo、IMDb、纽约时报、PayPal、Airbnb、Booking、Stripe、DuckDuckGo、Speedtest。
   > 实测淘汰 3 条死链：`steamstatic.com`（代理拒绝）、`www.iesdouyin.com`（SSL 握手失败）、`www.adobe.com`（读超时）——加进去只会被自动剔除并刷日志，所以不放。
-- 🐞 **修复**：站点统计原来每次访问**整体覆盖**（只留最后一次的状态与网速），新站点/新品牌的成功率无从统计；现改为**整轮累加**（`visits` / `ok` / `ms` / `size`），并统一走 `bump_site_stat()`，顺带消除了 `domain_status` 三处重复的字面量初始化。
+- 🐞 **修复站点统计**：原来每次访问**整体覆盖**（只留最后一次的状态与网速），新站点的成功率无从统计；现改为**整轮累加**（`visits` / `ok` / `ms` / `size`），统一走 `bump_site_stat()`，顺带消除三处重复的字面量初始化。
 
 <details><summary>English</summary>
 
 **v1.3.2 (2026-09-29)** — Chart metric switched (speed → real visits) + domain pool expanded.
 
-- **The bar chart no longer plots KB/s.** Many sites only return 204/302, are served from the ADG/DNS cache, or simply have no downloadable body — the byte count is always 0, so **speed is always 0 KB/s** and the chart looked empty. Now:
-  - **bar height = visit count** (cumulative per run) — a request that actually went out is always ≥ 1, which is the direct evidence of real traffic;
-  - **bar label = average latency in ms** (switches to the failure status, e.g. `Timeout` / `DNS Error`, when that site has failures);
-  - **colour now reflects the success rate**: 🟢 all OK / 🟠 partly failed / 🔴 all failed, with a legend in the corner;
-  - sorted by visits, **top 24 only**, with `Top 24/total` in the title when truncated.
-- **Domain pool expanded: 54 → 79 brands, 543 → 649 URLs (+106).** Every new site was **probed on the real network first** (OpenAI/ChatGPT, Claude, Steam, Tencent QQ/WeChat, Taobao·Ali, JD, NetEase, Douyin, Xiaohongshu, Huawei, NVIDIA, Adobe, Zoom, Slack, Notion, Figma, Yahoo, IMDb, NYTimes, PayPal, Airbnb, Booking, Stripe, DuckDuckGo, Speedtest). Three dead ones were rejected: `steamstatic.com` (proxy refused), `www.iesdouyin.com` (SSL handshake failure), `www.adobe.com` (read timeout).
-- **Fix**: per-site stats used to be **overwritten** on every visit (only the last status/speed survived), making success rates impossible to compute; now they **accumulate over the run** (`visits` / `ok` / `ms` / `size`) through a single `bump_site_stat()`, which also removed three duplicated literal initialisers.
+- **The bar chart no longer plots KB/s.** Many sites only return 204/302, are served from the ADG/DNS cache, or simply have no downloadable body — the byte count is always 0, so **speed is always 0 KB/s** and the chart looked empty. Now: **bar height = cumulative visit count** (a request that actually went out is always ≥ 1), **bar label = average latency in ms** (switches to the failure reason when that site has failures), **colour by success rate** 🟢 all OK / 🟠 partly failed / 🔴 all failed with a legend, and sorted by visits with **top 24 only**.
+- **Domain pool expanded: 54 → 79 brands, 543 → 649 URLs (+106).** Every new site was **probed on the real network first**: OpenAI/ChatGPT, Claude, Steam, Tencent, Taobao·Ali, JD, NetEase, Douyin, Xiaohongshu, Huawei, NVIDIA, Adobe, Zoom, Slack, Notion, Figma, Yahoo, IMDb, NYTimes, PayPal, Airbnb, Booking, Stripe, DuckDuckGo, Speedtest. Three dead ones were rejected: `steamstatic.com` (proxy refused), `www.iesdouyin.com` (SSL handshake failure), `www.adobe.com` (read timeout).
+- **Fix**: per-site stats used to be **overwritten** on every visit, making success rates impossible to compute; now they **accumulate over the run** through a single `bump_site_stat()`.
 
 </details>
 
@@ -41,130 +37,24 @@
 
 **v1.3.2 (2026-09-29)** — Đổi chỉ số biểu đồ (tốc độ → lượt truy cập thật) + mở rộng danh sách tên miền.
 
-- **Biểu đồ cột không còn vẽ KB/s.** Nhiều trang chỉ trả 204/302, được phục vụ từ cache ADG/DNS, hoặc không có nội dung tải về — số byte luôn bằng 0 nên **tốc độ luôn là 0 KB/s** và biểu đồ trông trống rỗng. Nay:
-  - **chiều cao cột = số lượt truy cập** (tích lũy trong cả lượt chạy) — yêu cầu đã thực sự gửi đi thì luôn ≥ 1, đây là bằng chứng trực tiếp của lưu lượng thật;
-  - **nhãn trên cột = độ trễ trung bình (ms)** (đổi thành trạng thái lỗi như `Timeout` / `DNS Error` nếu trang đó có lỗi);
-  - **màu theo tỉ lệ thành công**: 🟢 thành công hết / 🟠 lỗi một phần / 🔴 lỗi toàn bộ, có chú giải ở góc;
-  - sắp xếp theo số lượt, **chỉ vẽ top 24**, tiêu đề hiển thị `Top 24/tổng` khi bị cắt.
-- **Mở rộng danh sách: 54 → 79 thương hiệu, 543 → 649 URL (+106).** Mọi trang mới đều được **kiểm tra thật trên mạng trước** rồi mới thêm. Ba tên miền chết đã bị loại: `steamstatic.com`, `www.iesdouyin.com`, `www.adobe.com`.
-- **Sửa lỗi**: thống kê theo trang trước đây bị **ghi đè** mỗi lần truy cập (chỉ giữ trạng thái/tốc độ cuối), khiến không thể tính tỉ lệ thành công; nay **tích lũy cả lượt chạy** qua một hàm `bump_site_stat()` duy nhất.
+- **Biểu đồ cột không còn vẽ KB/s.** Nhiều trang chỉ trả 204/302, được phục vụ từ cache ADG/DNS, hoặc không có nội dung tải về — số byte luôn bằng 0 nên **tốc độ luôn là 0 KB/s** và biểu đồ trông trống rỗng. Nay: **chiều cao cột = số lượt truy cập tích lũy** (yêu cầu đã thực sự gửi đi thì luôn ≥ 1), **nhãn trên cột = độ trễ trung bình (ms)** (đổi thành lý do lỗi nếu trang đó có lỗi), **màu theo tỉ lệ thành công** 🟢 / 🟠 / 🔴 kèm chú giải, sắp xếp theo số lượt và **chỉ vẽ top 24**.
+- **Mở rộng danh sách: 54 → 79 thương hiệu, 543 → 649 URL (+106).** Mọi trang mới đều được **kiểm tra thật trên mạng trước** khi thêm. Ba tên miền chết đã bị loại: `steamstatic.com`, `www.iesdouyin.com`, `www.adobe.com`.
+- **Sửa lỗi**: thống kê theo trang trước đây bị **ghi đè** mỗi lần truy cập, khiến không thể tính tỉ lệ thành công; nay **tích lũy cả lượt chạy** qua một hàm `bump_site_stat()` duy nhất.
 
 </details>
 
-**v1.3.1（2026-09-28）** — 移除「记录连接明细(CSV)」功能
+### 历史版本 / Older releases
 
-- 🗑️ **整体下线 CSV 记录功能**：删除界面上的「记录连接明细(CSV)」勾选框，以及背后的全部实现——`conn_log.csv` / 分卷轮转 / 15 列字段 / `_record_conn` / `_open_conn_log` / `_proto_of` / `_status_code` / `conn_lock` / `conn_file` 状态、`csv` 与 `datetime` 导入一并清除。理由：该表客户端拿不到 `group_name` / `node_name`，无法替代内核打标；训练样本的核对已在 mihomo 日志侧完成，继续在客户端落盘 32MB×N 的 CSV 属于无效负担。
-- ✅ **其余功能全部保留且不受影响**：曲线/速率统计仍走 `self.monitor.record(ok)`；上传 / 大文件下载 / 小包交互 / HLS 分片 / 页面真并发 / HTTP/2·HTTP/3 通道 / 缓存穿透开关 / 更新通道 / 三语言界面 全部照旧。
-- 🧹 **界面与代码清理**：按钮行恢复为【开始】【停止】【穿透缓存(?num=)】三件套（`穿透缓存` 回填到 column=2，不留空列）；源码中不再残留任何 CSV 相关标识符（已加自动化守护测试 R1）。
-- 📦 **版本号升到 1.3.1**（同版本号重发老用户检查不到更新）。
+| 版本 | 日期 | 变更摘要 |
+| --- | --- | --- |
+| **v1.3.1** | 2026-09-28 | **移除「记录连接明细(CSV)」功能**：勾选框与 `conn_log.csv`（15 列、32MB 分卷）、`_record_conn` / `_open_conn_log` / `csv`·`datetime` 导入整体下线（客户端拿不到 `group_name` / `node_name`，该表不能替代内核打标，样本核对已在 mihomo 日志侧完成）；按钮行恢复【开始】【停止】【穿透缓存】三件套，源码零 CSV 残留。 |
+| **v1.3.0** | 2026-09-28 | **流量形态大升级**：新增**上传**（约 20%：表单/媒体/大文件三档）、**大文件持续下载**（约 5%）、**小包高频交互**（约 12%），补齐上行与小包特征；域名池换真实榜单档位 + **幂律加权**（6:1 → 1000/300/100/30 ≈ 100:1）；页面簇发改**真并发**（触发率 0.4 → 0.9）；新增可选 **HTTP/2·HTTP/3（httpx）** 通道，握手失败自动回退 requests；视频改 **DASH/HLS 两级分片**（主清单 → 子清单 → 媒体分片）；`?num=` 缓存穿透改为**默认关闭**的开关。 |
+| **v1.2.1** | 2026-09-28 | **修复「一直提示更新频繁 / 检查更新失败」**：弃用有速率限制的 GitHub REST API（未鉴权仅 60 次/小时/IP，共享出口被打满即 403），改用**无速率限制的 `releases.atom` + 发布页 302**；修复「发现新版本点击没反应」——下载改**后台线程 + 百分比进度条弹窗**（含已下载/总大小/实时速度，可取消），所有更新弹窗回归主线程并居中置顶；EXE 资产名带版本号。 |
+| **v1.2.0** | 2026-09-28 | 修复 3 个稳定性 bug（DNS 解析失败域名现在能立即剔除 / 子线程不再读 Tk 控件消除崩溃 / 日志改 5MB×2 轮转 + 修 Session 泄漏）；默认并发 16→8、重试降为 1 次连接重试、子资源加 256KB 上限，降低对旁路由与 ADG 的冲击。 |
+| v1.1.0 | 2026-09-26 | 多语言界面：中文 / English / Tiếng Việt，**自动识别 Windows 默认语言**。 |
+| v1.0.0 | 2026-09-25 | 首个版本：短请求浏览 + 长连接视频流模拟、断联自动恢复、失效域名自动剔除、站点编辑器、GitHub 更新检查。 |
 
-<details><summary>English</summary>
-
-**v1.3.1 (2026-09-28)** — Removed the "Log connections (CSV)" feature.
-
-- **Feature fully retired**: the UI checkbox and the entire implementation are gone — `conn_log.csv`, 32MB rotation, the 15-column schema, `_record_conn` / `_open_conn_log` / `_proto_of` / `_status_code`, the `conn_lock` / `conn_file` state, and the `csv` / `datetime` imports. Rationale: the file cannot carry `group_name` / `node_name` client-side and does not replace kernel-level tagging; sample auditing already happens on the mihomo log side, so writing 32MB×N of CSV locally was pure overhead.
-- **Everything else is untouched and verified**: chart/rate stats still go through `self.monitor.record(ok)`; uploads, bulk downloads, small-packet bursts, HLS segments, real concurrent page bursts, the HTTP/2·HTTP/3 channel, the cache-bust toggle, the update channel and the three-language UI all behave exactly as before.
-- **UI cleanup**: the button row is back to 【Start】【Stop】【Bust cache (?num=)】 (the toggle moved to column 2, no empty column); no CSV identifier remains in the source (guarded by an automated R1 test).
-- **Version bumped to 1.3.1** (re-releasing an existing version number would leave current users with no update).
-
-</details>
-
-<details><summary>Tiếng Việt</summary>
-
-**v1.3.1 (2026-09-28)** — Loại bỏ tính năng "Ghi kết nối (CSV)".
-
-- **Gỡ bỏ hoàn toàn**: hộp kiểm trên giao diện và toàn bộ phần triển khai phía sau — `conn_log.csv`, quay vòng 32MB, lược đồ 15 cột, `_record_conn` / `_open_conn_log` / `_proto_of` / `_status_code`, trạng thái `conn_lock` / `conn_file`, cùng các import `csv` và `datetime`. Lý do: tệp không có `group_name` / `node_name` ở phía client và không thay thế được việc gắn nhãn ở kernel; việc kiểm tra mẫu đã được thực hiện ở phía log mihomo, nên ghi 32MB×N CSV cục bộ chỉ là gánh nặng vô ích.
-- **Mọi tính năng khác giữ nguyên, đã kiểm chứng**: thống kê tốc độ/biểu đồ vẫn qua `self.monitor.record(ok)`; tải lên, tải xuống tệp lớn, gói nhỏ, phân đoạn HLS, bùng nổ trang song song, kênh HTTP/2·HTTP/3, công tắc phá cache, kênh cập nhật và giao diện ba ngôn ngữ đều hoạt động như cũ.
-- **Dọn dẹp giao diện**: hàng nút trở lại 【Bắt đầu】【Dừng】【Phá cache (?num=)】 (công tắc về cột 2, không còn cột trống); mã nguồn không còn định danh CSV nào (được bảo vệ bằng kiểm thử R1 tự động).
-- **Nâng số phiên bản lên 1.3.1** (phát hành lại cùng số phiên bản sẽ khiến người dùng hiện tại không thấy cập nhật).
-
-</details>
-
-**v1.3.0（2026-09-28）** — 流量形态大升级：上传 / 大文件 / 小包交互 + HTTP/2·HTTP/3 + HLS 分片
-
-- 📤 **补齐上行与长尾流量形态（P0）**：原来只有「短请求 + 视频」两种形态，上行侧与小包几乎空白，Smart/LightGBM 的特征工程拿不到这些维度的样本。
-  - **上传**（约 20% 命中）：表单 10–100KB / 媒体 1–5MB / 大文件 20–100MB 三档（60/30/10 加权），大文件档带限速，不占满上行。
-  - **大文件持续下载**（约 5% 命中）：网盘 / 驱动 / 更新包型，单次 20–100MB（上限 200MB）。
-  - **小包高频交互**（约 12% 命中）：IM / 游戏心跳 / 长轮询，3–8 次连发、0.2–1.0s 间隔。
-- ⚖️ **域名池换真实榜单档位 + 幂律加权（P1）**：品牌权重从 6/5/4/3/2/1 拉开到 **1000/300/100/30**（头尾比 ~100:1，原 6:1 太扁）；品牌内部再按**子域角色**加权（`www`/`api`/裸域 = 10，`static`/`cdn`/`img`/`support` 等 = 1，其余 = 3）；可选加载 **Tranco / Cisco Umbrella top-1M**（`top1m.csv`，`USE_TOP_LIST=True` 生效，`w ∝ rank^-0.8`），没文件时行为不变。
-  > 注：任务书原表漏了站点池里的 14 个品牌（Xbox / PlayStation / Nintendo / EA / Epic / Ubisoft / Toutiao / Hulu 等），已补齐到对应档位，并把兜底权重 1 → **30**，否则未列品牌会被头部按 1000:1 直接饿死。
-- ⚡ **页面簇发改真并发（P1）**：旧实现是「串行 + 每个子资源 `sleep` 0.3–1.2s」，形态上根本不是簇发；现改为线程池真并发（6–15 个子资源、单资源上限 64KB → 512KB），触发概率 0.4 → **0.9**。
-- 🚀 **新增 HTTP/2 · HTTP/3 通道（P1）**：接入可选 `httpx` 通道（约 70% 流量走 h2/h3，其余仍走 requests h1.1），统一 `_iter_chunks()` 屏蔽两套响应接口差异；协议版本曾写入 `conn_log.csv` 的 `proto_ver` 列（该 CSV 已在 v1.3.1 移除）。**未安装 httpx 或握手失败自动回退 requests，任何既有功能都不受影响。**
-- 🎬 **视频改 DASH/HLS 分片形态（P2）**：新增 m3u8 **主清单 → 子清单 → 媒体分片**两级解析（测试源给的都是主清单，只按「非 `#` 行」当分片下，实际只会拉到几个几 KB 的文本文件 ≈ 0 流量），变长分片 + 并行 2–4 路，并支持 `EXT-X-MAP` 初始化段。
-- 🔁 **`?num=` 缓存穿透改成开关（P2）**：新增「穿透缓存(?num=)」勾选项，**默认关闭**。原来每次请求都加 `?num=`，直接把 ADG 缓存打穿，反而破坏了「缓存预热」这个初衷。
-- 🗂️ **`conn_log.csv` 增强（P3，已在 v1.3.1 整体移除）**：32MB 自动分卷轮转；`ts` 改 **UTC ISO8601**（带 `Z`）；`ok` 语义收窄为 **2xx/3xx**（原来「没抛异常就算成功」，403/404/500 也被标成成功，样本标签是错的），新增 `ok_2xx` / `ok_3xx` 保留细分；字段扩到 **15 列**（新增 `method` / `bytes_up` / `proto_ver` / `scene_hint` / `tier` 等），便于离线核对样本分布。
-- 🐞 **顺手修掉两个既有 bug**：① 切换界面语言时「记录连接明细(CSV)」勾选框文案不刷新（该勾选框已在 v1.3.1 随功能一并移除）；② 主窗口输入行 9 个控件挤一行，默认 1000px 窗口下「长连接比例」「单次观看」被右边缘裁掉（参数改不了 = 功能不可用），已拆成两行。
-
-<details><summary>English</summary>
-
-**v1.3.0 (2026-09-28)** — Traffic-shape upgrade: uploads / bulk downloads / small-packet bursts + HTTP/2·HTTP/3 + HLS segments.
-
-- **New traffic shapes (P0)**: uploads (~20%: form 10–100KB / media 1–5MB / bulk 20–100MB, rate-limited), bulk downloads (~5%, 20–100MB, cap 200MB), and high-frequency small-packet interaction (~12%, 3–8 bursts @0.2–1.0s). Previously only "short request + video" existed, so upstream and small-packet features were missing from the training samples.
-- **Power-law weighting (P1)**: brand tiers widened from 6/5/4/3/2/1 to **1000/300/100/30** (~100:1 head-to-tail); per-subdomain role weighting inside a brand (`www`/`api`/bare = 10, `static`/`cdn`/`img`/`support` = 1, else 3); optional **Tranco / Umbrella top-1M** list (`top1m.csv`, `USE_TOP_LIST=True`, `w ∝ rank^-0.8`). The 14 brands missing from the original spec table were restored to their tiers and the fallback weight raised 1 → 30 (otherwise unlisted brands get starved 1000:1).
-- **Real concurrent page burst (P1)**: the old code was serial with a 0.3–1.2s sleep per subresource — not a burst at all. Now a thread pool (6–15 subresources, per-resource cap 64KB → 512KB), trigger probability 0.4 → **0.9**.
-- **HTTP/2 · HTTP/3 (P1)**: optional `httpx` channel (~70% of traffic via h2/h3, rest h1.1 requests), with `_iter_chunks()` unifying both response APIs; the protocol version used to be logged in the new `proto_ver` column (that CSV was removed in v1.3.1). **Falls back to requests automatically if httpx is missing or the handshake fails — no feature is affected.**
-- **DASH/HLS video (P2)**: two-level m3u8 resolution (master → variant → media segments; the test sources are masters, so naive parsing only fetched a few KB of text ≈ zero traffic), variable-length segments, 2–4 parallel fetches, `EXT-X-MAP` init segment support.
-- **`?num=` cache-busting is now a toggle (P2)**, **off by default** — previously every request appended `?num=`, punching straight through the ADG cache and defeating the "cache warm-up" purpose.
-- **`conn_log.csv` (P3, removed entirely in v1.3.1)**: 32MB rotation; `ts` is now **UTC ISO8601** (`Z`); `ok` narrowed to **2xx/3xx** (previously "no exception = success", mislabelling 403/404/500 as successes) with new `ok_2xx` / `ok_3xx`; 15 columns (adds `method` / `bytes_up` / `proto_ver` / `scene_hint` / `tier`).
-- **Two pre-existing bugs fixed**: (1) the "Log connections (CSV)" checkbox text was not refreshed on language switch (that checkbox was dropped along with the feature in v1.3.1); (2) the 9 control row overflowed the default 1000px window, clipping "Stream Ratio" and "Watch Duration" (unusable settings) — now split into two rows.
-
-</details>
-
-<details><summary>Tiếng Việt</summary>
-
-**v1.3.0 (2026-09-28)** — Nâng cấp hình thái lưu lượng: tải lên / tải xuống tệp lớn / gói nhỏ tần suất cao + HTTP/2·HTTP/3 + phân đoạn HLS.
-
-- **Hình thái mới (P0)**: tải lên (~20%: biểu mẫu 10–100KB / media 1–5MB / tệp lớn 20–100MB, có giới hạn tốc độ), tải xuống tệp lớn (~5%, 20–100MB, tối đa 200MB), tương tác gói nhỏ tần suất cao (~12%, 3–8 lần, cách 0.2–1.0s). Trước đây chỉ có "yêu cầu ngắn + video" nên thiếu đặc trưng phía tải lên và gói nhỏ.
-- **Trọng số luật lũy thừa (P1)**: mở rộng từ 6/5/4/3/2/1 thành **1000/300/100/30** (~100:1); thêm trọng số theo vai trò tên miền con (`www`/`api`/tên miền trần = 10, `static`/`cdn`/`img`/`support` = 1, còn lại 3); hỗ trợ tùy chọn danh sách **Tranco / Umbrella top-1M** (`top1m.csv`, `USE_TOP_LIST=True`, `w ∝ rank^-0.8`). 14 thương hiệu bị thiếu trong bảng gốc đã được bổ sung và trọng số mặc định tăng 1 → 30.
-- **Bùng nổ trang song song thật (P1)**: bản cũ chạy tuần tự với sleep 0.3–1.2s mỗi tài nguyên — không phải "bùng nổ". Nay dùng thread pool (6–15 tài nguyên, giới hạn 64KB → 512KB), xác suất kích hoạt 0.4 → **0.9**.
-- **HTTP/2 · HTTP/3 (P1)**: kênh `httpx` tùy chọn (~70% lưu lượng qua h2/h3, còn lại requests h1.1), `_iter_chunks()` thống nhất hai API phản hồi; phiên bản giao thức từng được ghi vào cột `proto_ver` (tệp CSV đó đã bị gỡ ở v1.3.1). **Tự động quay về requests nếu thiếu httpx hoặc bắt tay thất bại.**
-- **Video DASH/HLS (P2)**: phân tích m3u8 hai cấp (master → biến thể → phân đoạn), phân đoạn dài thay đổi, 2–4 luồng song song, hỗ trợ `EXT-X-MAP`.
-- **`?num=` thành công tắc (P2)**, **mặc định TẮT** — trước đây luôn thêm `?num=`, phá hỏng mục đích "làm nóng cache" của ADG.
-- **`conn_log.csv` (P3, đã gỡ hoàn toàn ở v1.3.1)**: quay vòng 32MB; `ts` theo **UTC ISO8601** (`Z`); `ok` thu hẹp còn **2xx/3xx** (trước đây "không lỗi = thành công", gán nhãn sai cho 403/404/500), thêm `ok_2xx` / `ok_3xx`; 15 cột.
-- **Sửa 2 lỗi cũ**: (1) nhãn hộp kiểm "Ghi kết nối (CSV)" không đổi khi chuyển ngôn ngữ (hộp kiểm đó đã bị gỡ cùng tính năng ở v1.3.1); (2) hàng 9 control tràn cửa sổ 1000px làm mất "Tỉ lệ luồng" và "Thời gian xem" — nay tách thành hai hàng.
-
-</details>
-
-**v1.2.1（2026-09-28）** — 更新通道修复 + 下载可视化
-
-- 🚫 **修复「一直提示更新频繁 / 检查更新失败」（核心）**：旧版用 GitHub **REST API** 检查更新（未鉴权仅 **60 次/小时/IP**），代理共享出口被别人打满即返回 **403** → 程序一直报「更新频繁」，更新通道等于废掉。现改用 **`releases.atom` 订阅源 + 网页 `/releases/latest` 302 重定向**（**两者均无速率限制**）取最新版本号与说明，彻底摆脱 403。
-- 🐞 **修复「识别到更新但点击没反应 / 无进度反馈」（用户反馈）**：
-  - 根因①：旧版 `_apply_update` 在调用线程里**同步下载约 42MB 且零进度**，界面长时间卡死，看起来像「点了没反应」。
-  - 根因②：发现新版本后的 `messagebox.askyesno` 在**后台线程**直接弹出，弹窗可能落到「关于」窗口背后，用户点了却看不到确认框。
-  - 修复：下载改为**后台线程**，弹出进度条对话框（**百分比 + 已下载/总大小 + 实时速度 MB/s** + 可取消按钮）；所有更新相关弹窗统一经主线程 `root.after(0, …)` 弹出，并指定正确父窗口。下载完成自动写重启脚本并替换重启。
-  - 强化：进度总大小取 GitHub 资源 `Content-Length`（HEAD 失败则用 GET 响应头），确保**一定显示百分比进度条**而非空转；对话框**居中并短暂置顶**，确保一定看得见；下载失败会**显示具体原因**，不再静默无反应。（本机已用真实桌面截图验证进度条确实渲染）
-- 🏷️ **EXE 名字带版本号**：Release 资产命名为 `realsurf<版本>.exe`（如 `realsurf1.2.1.exe`）；自动更新也把新文件保存为**带版本号**的名字（旧版本文件保留不删，便于对照）——一眼就知道哪个是哪个。更新检查用「发布页解析」拿资产名，不写死文件名。
-
-<details><summary>English</summary>
-
-**v1.2.1 (2026-09-28)** — Update-channel fix + visualized download. The old build checked updates via the GitHub **REST API** (unauthenticated = only 60 req/hour/IP) and permanently said "rate limited" once the shared proxy IP hit 403 — now it uses the **releases.atom feed + the web /releases/latest redirect** (both rate-limit free). Root causes of "no reaction": the old updater downloaded ~42MB synchronously with no feedback (UI froze), and the "new version" dialog was shown from a background thread (could appear behind the About window). Fix: download runs in a background thread with a progress dialog (**percentage + downloaded/total + live MB/s** + Cancel button); all update dialogs are posted on the main thread via `root.after(0, …)` with the correct parent; total size comes from the asset `Content-Length` so a real percentage bar always shows; the dialog is centered and briefly forced on top; failures now show the concrete reason. Verified with a real-desktop screenshot.
-
-</details>
-
-<details><summary>Tiếng Việt</summary>
-
-**v1.2.1 (2026-09-28)** — Sửa kênh cập nhật + tải có tiến trình. Bản cũ kiểm tra bằng **REST API** GitHub (không xác thực = chỉ 60 lần/giờ/IP) và luôn báo "bị giới hạn" khi IP proxy chia sẻ bị 403 — nay dùng **feed releases.atom + chuyển hướng web /releases/latest** (đều không giới hạn). Nguyên nhân "không phản hồi": bản cũ tải ~42MB đồng bộ không phản hồi; hộp thoại "có bản mới" hiện từ luồng phụ (có thể nằm sau cửa sổ Giới thiệu). Sửa: tải chạy ở luồng phụ với hộp thoại tiến trình (**phần trăm + đã tải/tổng + tốc độ MB/s** + nút Hủy); mọi hộp thoại hiện trên luồng chính với đúng cửa sổ cha; tổng dung lượng lấy từ `Content-Length` của asset nên luôn có thanh phần trăm thật; hộp thoại căn giữa và tạm đưa lên trên; lỗi nay hiện rõ nguyên nhân. Đã xác minh bằng ảnh chụp màn hình thật.
-
-</details>
-
-**v1.2.0（2026-09-28）**
-
-- **修复 3 个稳定性 bug（P0）**：① DNS 解析失败现在能被正确识别并**立即剔除失效域名**（旧版 `requests.exceptions.NameResolutionError` 不存在导致该逻辑 100% 失效）；② 子线程不再读取 Tk 控件，消除 `main thread is not in main loop` 崩溃；③ 修复日志无限膨胀（改为 5MB×2 轮转）、旧 Session 泄漏、停止后再开始图表不刷新。
-- **降低对旁路由 / ADG 的冲击（P3）**：默认并发 16→**8**；重试由「3 次 + 429/5xx 重试」降为「仅 1 次连接重试」避免放大流量；子资源加 256KB 上限；背压上限改用真实并发数。
-- **训练样本质量（P1 / P2）**：品牌按**热度幂律加权**投喂（头部站更频繁，缓解均匀分布偏置）；新增**页面簇发**（访问成功后并发拉取同品牌兄弟子域，还原真实页面多资源加载）；新增**连接明细 CSV 导出** `conn_log.csv`（ts / host / url / status / bytes / ms / ok），可离线审计样本分布、验证 ADG 缓存命中。
-- **未做项（后续）**：真实 **HTTP/2 · QUIC** 协议栈改写（建议 P1 第三项）本期未纳入 —— 它会显著增加打包与回归风险，而本工具的 ADG DNS 缓存预热按主机名生效、不受 HTTP 版本影响。如确需 h2/QUIC 流量形态用于 Smart/LightGBM 训练，将在下个版本以可选 `httpx` 通道实现。
-
-<details><summary>English</summary>
-
-**v1.2.0 (2026-09-28)** — Fixed 3 stability bugs (DNS-failure domains now dropped immediately; no more sub-thread Tk crashes; log rotation + session leak + chart-resume fixed). Reduced impact on side-router/ADG (default 16→8 threads; 1 connection retry only; 256KB subresource cap). Training-quality: power-law brand weighting, page-burst (sibling subdomain fetches), and `conn_log.csv` structured export. HTTP/2·QUIC rewrite deferred to a later release (optional `httpx` channel).
-
-</details>
-
-<details><summary>Tiếng Việt</summary>
-
-**v1.2.0 (2026-09-28)** — Sửa 3 lỗi ổn định (tên miền lỗi DNS giờ bị xóa ngay; hết crash luồng phụ đọc Tk; log quay vòng + leak session + chart hồi phục). Giảm tác động lên router/ADG (mặc định 16→8 luồng; chỉ 1 lần thử lại kết nối; giới hạn 256KB tài nguyên phụ). Chất lượng huấn luyện: trọng số thương hiệu theo luật lũy thừa, bùng nổ trang (tải tên miền anh em), xuất CSV `conn_log.csv`. Hoãn viết lại HTTP/2·QUIC (kênh `httpx` tùy chọn ở bản sau).
-
-</details>
+<sub>各版本完整说明见 [Releases](https://github.com/mmddxyg/realsurf/releases)。</sub>
 
 ---
 
@@ -175,8 +65,7 @@
 `拟真冲浪 RealSurf`（原名「真实上网环境模拟器」）在本地发起大量「像真人」的网络访问，
 让出口流量具备**多种真实形态**（短请求 / 长视频流 / 上传 / 大文件下载 / 小包高频交互），
 从而更贴近真实用户、补足 Smart 组训练所需的流量特征；
-此外也能给 **AdGuardHome (ADG) 的 DNS 缓存做预热与命中测试**（先跑一轮把常用域名灌进缓存，
-再对比命中率 / 解析延迟的变化）：
+此外也能给 **AdGuardHome (ADG) 的 DNS 缓存做预热与命中测试**：
 
 - **短请求浏览**：轮换 4 套浏览器 UA（Chrome / Edge / Firefox × Win / macOS），
   带 `Referer` / `Sec-Fetch-*` / `Accept-Language` 等完整请求头，5–30s 随机间隔，
@@ -194,15 +83,10 @@
 - **失效域名自动剔除**：连续失败达阈值（DNS 错误立即）的域名自动从列表移除。
 - **站点编辑器**：图形化增删站点、导出 JSON；柱状图实时展示**各站点真实访问次数**（柱高=整轮累计访问次数，
   柱顶标注平均响应耗时 ms，配色按成功率：🟢 全成功 / 🟠 部分失败 / 🔴 全失败），按次数排序取 Top 24。
-  > 早期版本画的是「网速 KB/s」——但大量站点只回 204/302 或命中缓存，body 恒为 0 字节，
-  > 网速永远是 0，图表看不出任何东西，故 v1.3.2 换成访问次数。
+  > 早期版本画的是「网速 KB/s」，但大量站点只回 204/302 或命中缓存、body 恒为 0 字节，画出来永远是 0，故 v1.3.2 换成访问次数。
 - **ADG DNS 缓存预热 / 命中测试**：先跑一轮把常用域名解析结果灌入 AdGuardHome 缓存，
   再观察命中率与解析延迟的变化，用来验证 ADG 缓存链路是否正常工作。
-  > 注意：`?num=` 缓存穿透现在是**默认关闭**的勾选项（「穿透缓存(?num=)」）。旧版每次都加 `?num=`，
-  > 会把 ADG 缓存直接打穿，反而与「预热缓存」的目的相悖。
-- **~~连接明细审计~~（v1.3.1 已移除）**：原「记录连接明细(CSV)」功能及其 `conn_log.csv`（15 列、
-  32MB 分卷）已整体下线——客户端拿不到 `group_name` / `node_name`，该表不能替代内核打标，
-  样本核对已在 mihomo 日志侧完成，继续落盘 CSV 只是无效负担。
+  > 注意：`?num=` 缓存穿透现在是**默认关闭**的勾选项「穿透缓存(?num=)」。旧版每次都加 `?num=`，会把 ADG 缓存直接打穿，与「预热缓存」的目的相悖。
 - **多语言界面**：中文 / English / Tiếng Việt，**自动识别 Windows 默认语言**切换
   （中文系列→中文，越南语→越南语，其余地区→英文），也可用菜单「语言」手动切换并持久化。
 
@@ -244,15 +128,15 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 | `realnet_sim.py` | 主程序源码 |
 | `deploy.py` | 发布脚本（推送源码 + 建/更新 GitHub Release + 上传 exe） |
 | `realsurf.ico` / `icon_preview.png` | 应用图标 / README 预览图 |
-| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_v13.py`（v1.3.x 优化专项：R1「CSV 残留为 0」守护、M1 图表指标/配色、M3 域名池完整性、真网络与离线自检）、`test_update_dl.py`（无头下载验证）、`gui_update_test.py`（GUI 截图验证更新弹窗）、`gui_v13_test.py`（GUI 三语言 + 按钮行连续性 + **图表指标** + 布局 + 更新通道 + 启停回归） |
+| `tests/` | 测试：`smoke_headless.py`（冒烟）、`test_traffic.py`、`test_v12.py`、`test_v13.py`（v1.3.x 专项：残留守护、图表指标/配色、域名池完整性、真网络 + 离线自检）、`gui_v13_test.py`（GUI 三语言 + 布局 + 图表 + 更新通道 + 启停）、`test_update_dl.py`、`gui_update_test.py` |
 | `packaging/` | 打包相关：`realsurf.spec`、`realnet_sim.spec`、`make_icon.py` |
 | `archive/` | 历史遗留文件（旧版 `multi_site_access.py` 与旧 `readme.txt`） |
 | `dist/` | 构建产物目录（已在 `.gitignore` 中；`deploy.py` 从这里取 exe 上传） |
 
-运行测试（在项目根目录）：`python tests/test_v13.py`（v1.3.x 全量专项，含真网络）、
-`python tests/test_v13.py --offline`（只跑离线静态 + R1 残留检查 + 权重抽样自检）、
-`python tests/gui_v13_test.py`（GUI 三语言 + 按钮行连续性 + 布局 + 更新通道 + 启停回归，产出截图）、
-`python tests/smoke_headless.py`、`python tests/test_update_dl.py` 等。
+运行测试（在项目根目录）：`python tests/test_v13.py`（全量，含真网络）、
+`python tests/test_v13.py --offline`（只跑离线静态 + 残留检查 + 权重抽样自检）、
+`python tests/gui_v13_test.py`（GUI 回归，产出截图）、
+`python tests/smoke_headless.py`、`python tests/test_update_dl.py`。
 
 ### 版本
 
@@ -267,9 +151,10 @@ realnet_venv314\Scripts\pyinstaller --onefile --noconsole --name realsurf --icon
 ### What is this
 
 `拟真冲浪 RealSurf` (RealSurf) generates many human-like web requests locally, so the outbound
-traffic mixes two shapes and better resembles a real user — supplying the traffic features Smart
-groups need for training. It is also handy for **warming up and hit-testing the AdGuardHome (ADG)
-DNS cache** (run one pass to populate the cache, then compare hit rate / resolve latency):
+traffic mixes **several realistic shapes** (short requests / long video streams / uploads / bulk
+downloads / small-packet bursts) and better resembles a real user — supplying the traffic features
+Smart groups need for training. It is also handy for **warming up and hit-testing the AdGuardHome
+(ADG) DNS cache**:
 
 - **Short browsing**: rotates 4 browser UA profiles (Chrome / Edge / Firefox × Win / macOS) with
   full headers (`Referer`, `Sec-Fetch-*`, `Accept-Language`), random 5–30s intervals, many
@@ -291,17 +176,13 @@ DNS cache** (run one pass to populate the cache, then compare hit rate / resolve
 - **Site editor**: add/remove sites and export JSON; the bar chart shows **real visit counts per site**
   (bar = cumulative visits, label = avg latency in ms, colour by success rate: 🟢 all OK / 🟠 partly
   failed / 🔴 all failed), top 24 by visits.
-  > Earlier builds plotted KB/s — but most sites only return 204/302 or come from cache, so the body is
-  > always 0 bytes and the chart was empty. v1.3.2 switched to visit counts.
+  > Earlier builds plotted KB/s, but most sites only return 204/302 or come from cache so the body is
+  > always 0 bytes and the chart stayed empty — v1.3.2 switched to visit counts.
 - **ADG DNS cache warm-up / hit test**: run one pass to populate the AdGuardHome cache, then watch
   hit rate and resolve latency change — a quick sanity check that the ADG cache chain works.
   > Note: `?num=` cache-busting is now an **off-by-default** toggle ("Bust cache (?num=)"). The old
   > build appended `?num=` to every request, punching straight through the ADG cache and defeating
   > the warm-up purpose.
-- **~~Connection audit trail~~ (removed in v1.3.1)**: the "Log connections (CSV)" feature and its
-  `conn_log.csv` (15 columns, 32MB rotation) are gone — `group_name` / `node_name` are not available
-  client-side, the file does not replace kernel-level tagging, and sample auditing already happens on
-  the mihomo log side, so writing CSV locally was pure overhead.
 - **Multilingual UI**: 中文 / English / Tiếng Việt. **Auto-detects the Windows display language**
   (Chinese family → 中文, Vietnamese → Tiếng Việt, everything else → English); you can also switch
   manually via the "Language" menu (persisted).
@@ -353,8 +234,7 @@ Current version: `v1.3.2`
 `拟真冲浪 RealSurf` (RealSurf) tạo ra nhiều yêu cầu web giống con người ở máy local, giúp lưu lượng
 đầu ra có **nhiều dạng thực tế** (yêu cầu ngắn / luồng video dài / tải lên / tải xuống tệp lớn /
 gói nhỏ tần suất cao) và giống người thật hơn — cung cấp đặc trưng lưu lượng nhóm Smart cần để huấn luyện.
-Cũng rất tiện để **làm nóng và kiểm tra cache DNS của AdGuardHome (ADG)** (chạy một lượt để nạp cache,
-rồi so sánh tỉ lệ hit / độ trễ phân giải):
+Cũng rất tiện để **làm nóng và kiểm tra cache DNS của AdGuardHome (ADG)**:
 
 - **Duyệt ngắn**: luân phiên 4 profile UA trình duyệt (Chrome / Edge / Firefox × Win / macOS) với
   header đầy đủ (`Referer`, `Sec-Fetch-*`, `Accept-Language`), khoảng cách ngẫu nhiên 5–30s, nhiều
@@ -374,15 +254,10 @@ rồi so sánh tỉ lệ hit / độ trễ phân giải):
 - **Trình biên tập trang**: thêm/xóa trang và xuất JSON; biểu đồ cột hiển thị **số lượt truy cập thật
   của từng trang** (cột = tổng lượt trong cả lượt chạy, nhãn = độ trễ trung bình ms, màu theo tỉ lệ
   thành công: 🟢 thành công hết / 🟠 lỗi một phần / 🔴 lỗi toàn bộ), lấy top 24 theo số lượt.
-  > Bản cũ vẽ KB/s — nhưng hầu hết trang chỉ trả 204/302 hoặc lấy từ cache, phần thân luôn 0 byte
-  > nên biểu đồ trống. v1.3.2 đổi sang số lượt truy cập.
+  > Bản cũ vẽ KB/s, nhưng hầu hết trang chỉ trả 204/302 hoặc lấy từ cache nên phần thân luôn 0 byte và biểu đồ trống — v1.3.2 đổi sang số lượt truy cập.
 - **Làm nóng / kiểm tra cache DNS ADG**: chạy một lượt để nạp cache AdGuardHome, rồi theo dõi tỉ lệ
   hit và độ trễ phân giải — cách nhanh để xác nhận chuỗi cache ADG hoạt động.
-  > Lưu ý: phá cache `?num=` nay là tùy chọn **mặc định TẮT** ("Phá cache (?num=)"). Bản cũ luôn thêm
-  > `?num=`, phá hỏng mục đích "làm nóng cache" của ADG.
-- **~~Nhật ký kết nối~~ (đã gỡ ở v1.3.1)**: tính năng "Ghi kết nối (CSV)" và tệp `conn_log.csv`
-  (15 cột, quay vòng 32MB) đã bị loại bỏ — phía client không có `group_name` / `node_name`, tệp này
-  không thay thế được việc gắn nhãn ở kernel, và việc kiểm tra mẫu đã làm ở phía log mihomo.
+  > Lưu ý: phá cache `?num=` nay là tùy chọn **mặc định TẮT** ("Phá cache (?num=)"). Bản cũ luôn thêm `?num=`, phá hỏng mục đích "làm nóng cache" của ADG.
 - **Giao diện đa ngôn ngữ**: 中文 / English / Tiếng Việt. **Tự nhận biết ngôn ngữ hiển thị Windows**
   (họ tiếng Trung → 中文, tiếng Việt → Tiếng Việt, còn lại → English); cũng có thể đổi thủ công qua menu
   "Ngôn ngữ" (được lưu).
